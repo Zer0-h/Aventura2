@@ -93,14 +93,17 @@ int internal_cd(char **args){
     if (args[1] == NULL){
         strcpy(arg,getenv("HOME"));
     }else if(strchr(args[1],'\"') || strchr(args[1],'\'') || strchr(args[1],'\\')){
-        strcat(arg,args[1]);
+        // Cream un array de caràcters temporal per guardar tots els strings de args afegint un espai entre ells
+        char temp_arg[sizeof(arg)];
+        memset(temp_arg,0,sizeof(temp_arg));
+        strcat(temp_arg,args[1]);
         for (int i = 2; args[i]; i++){
-            strcat(arg," ");
-            strcat(arg,args[i]);
+            strcat(temp_arg," ");
+            strcat(temp_arg,args[i]);
         }
-        char *token, delim[4] = "\\,\'\"";
-        token = strtok(arg,delim);
-        memset(arg,0,sizeof(arg));
+        // Amb strtok eliminam els delimitadors que ens indica que volem entrar a un directori amb espais per així enviar arg a chdir
+        char *token, delim[4] = "\\\'\"";
+        token = strtok(temp_arg,delim);
         while (token){
             strcat(arg,token);
             token = strtok(NULL,delim);
