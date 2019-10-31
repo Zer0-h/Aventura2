@@ -1,10 +1,21 @@
 #define COMMAND_LINE_SIZE 1024
 #define ARGS_SIZE 64
+#define _POSIX_C_SOURCE 200112L
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+
+/* Las llamadas al sistema están recopiladas en la sección 2 de Man. 
+ * Ejemplos en nuestra aventura: open(), close(), chdir(), getcwd(), 
+ * dup(), dup2(), execvp(), exit(), fork(), getpid(), kill(), pause(), 
+ * signal(), wait(), waitpid(). Hay algunas llamadas al sistema que 
+ * siempre tienen éxito, y no retornan ningún valor para indicar si 
+ * se ha producido un error; ejemplos en nuestra aventura: getpid(), 
+ * getppid()
+ */
 
 char *read_line(char *line); 
 int execute_line(char *line);
@@ -119,7 +130,19 @@ int internal_cd(char **args){
 }
 
 int internal_export(char **args){
-    printf("[internal_export()→Esta función asignará valores a variables de entorno]\n");
+    if(args[1] && strchr(args[1],'=')){
+        char *env[2];
+        env[0] = strtok(args[1],"=");
+        env[1] = strtok(NULL,"");
+        printf("[internal_export()→ nombre: %s]\n",env[0]);
+        printf("[internal_export()→ valor: %s]\n",env[1]);
+        printf("[internal_export()→ antiguo valor para %s: %s]\n",env[0],getenv(env[0]));
+        if (setenv(env[0],env[1],1) == -1)
+            fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+        printf("[internal_export()→ nuevo valor para %s: %s]\n",env[0],getenv(env[0]));
+    } else{
+        fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
+    }
     return 1;
 }
 
