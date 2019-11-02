@@ -74,11 +74,9 @@ int parse_args(char **args, char *line){
         if (token[0] == '#'){break;}
         args[token_counter] = token;
         token = strtok(NULL, delim);
-        printf("[parse_args()→ token %d: %s]\n",token_counter,args[token_counter]);
         token_counter++;
     }
     args[token_counter] = NULL;
-    printf("[parse_args()→ token %d: %s]\n",token_counter,args[token_counter]);
     return token_counter;
 }
 
@@ -100,47 +98,43 @@ int check_internal(char **args){
     return 0;
 }
 
+/*
+S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona és:
+cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
+*/
+
 int internal_cd(char **args){
     char arg[COMMAND_LINE_SIZE];
     memset(arg,0,sizeof(arg));
     if (args[1] == NULL){
         strcpy(arg,getenv("HOME"));
-    }else if(strchr(args[1],'\\') || strchr(args[1],'\'') || strchr(args[1],'\"')){
-        // ir de uno en uno
+    }else if(strpbrk(args[1],"\'\"\\")){
         if (args[1][0] == '/')
             arg[0] = '/';
-        for (int i = 1; args[i] ; i++){
-            //if (i != 1)
-              //  strcat(arg," ");
-
-            char *token = strtok(args[i],"/");
-            while(token){
+        for (int i = 1; args[i]; i++){
+            char* token; 
+            char* rest = args[i];
+            while (token = strtok_r(rest,"/",&rest)){
                 char check1 = token[0];
                 char *check2 = &token[strlen(token) -1];
-                if ((check1 == '\"' || check1 == '\'' ))
+                if (check1 == '\"' || check1 == '\'')
                     token++;
-                if((*check2 == '\"' || *check2 == '\'' ) && *(check2 -1) != '\\')
+                if(*check2 == '\"' || *check2 == '\'' ){
+                    if (*(check2 -1) == '\\')
+                        *(check2-1) = *check2;
                     *check2 = 0;
-                char *rest = token;
-                while (token = strtok_r(rest, "\\", &rest)){
-                    if (*(token -1) == '\\')
+                }
+                for (token=strtok(token,"\\"); token; token =strtok(NULL,"\\")){
+                    if (*(token -1) == '\\') /* Per solucionar el cas si introdueixes \\ */
                         token--;
                     strcat(arg,token);
                 }
                 strcat(arg,"/");
-                token = strtok(NULL,"/");
-            }
+            }         
             if (args[i+1])
                 arg[strlen(arg) - 1] = ' ';
-
         }
-    } else if (strchr(args[1],'\\')){
-        for (int i = 1; args[i] ; i++, strcat(arg," ")){
-            for (char *token=strtok(args[i],"\\"); token; token =strtok(NULL,"\\")){
-                strcat(arg,token);
-            }
-        }
-    } else{
+     } else{
         strcpy(arg,args[1]);
     }
     if (chdir(arg) == -1){
