@@ -37,7 +37,8 @@ int main(){
 
 int imprimir_prompt(){
     char *user = getenv("USER"), *home = getenv("HOME"), pwd[COMMAND_LINE_SIZE];
-    getcwd(pwd,COMMAND_LINE_SIZE);
+    if (*getcwd(pwd,COMMAND_LINE_SIZE) == -1)
+        fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
     int len_home = strlen(home);
     if (strncmp(pwd,home,len_home) == 0){
         char final_pwd[strlen(pwd) - len_home + 1];
@@ -73,9 +74,11 @@ int parse_args(char **args, char *line){
         if (token[0] == '#'){break;}
         args[token_counter] = token;
         token = strtok(NULL, delim);
+        printf("[parse_args()→ token %d: %s]\n",token_counter,args[token_counter]);
         token_counter++;
     }
     args[token_counter] = NULL;
+    printf("[parse_args()→ token %d: %s]\n",token_counter,args[token_counter]);
     return token_counter;
 }
 
@@ -98,32 +101,49 @@ int check_internal(char **args){
 }
 
 int internal_cd(char **args){
-    int cd;
     char arg[COMMAND_LINE_SIZE];
     memset(arg,0,sizeof(arg));
     if (args[1] == NULL){
         strcpy(arg,getenv("HOME"));
-    }else if(strchr(args[1],'\"') || strchr(args[1],'\'') || strchr(args[1],'\\')){
-        // Cream un array de caràcters temporal per guardar tots els strings de args afegint un espai entre ells
-        char temp_arg[sizeof(arg)];
-        memset(temp_arg,0,sizeof(temp_arg));
-        strcat(temp_arg,args[1]);
-        for (int i = 2; args[i]; i++){
-            strcat(temp_arg," ");
-            strcat(temp_arg,args[i]);
+    }else if(strchr(args[1],'\\') || strchr(args[1],'\'') || strchr(args[1],'\"')){
+        // ir de uno en uno
+        if (args[1][0] == '/')
+            arg[0] = '/';
+        for (int i = 1; args[i] ; i++){
+            //if (i != 1)
+              //  strcat(arg," ");
+
+            char *token = strtok(args[i],"/");
+            while(token){
+                char check1 = token[0];
+                char *check2 = &token[strlen(token) -1];
+                if ((check1 == '\"' || check1 == '\'' ))
+                    token++;
+                if((*check2 == '\"' || *check2 == '\'' ) && *(check2 -1) != '\\')
+                    *check2 = 0;
+                char *rest = token;
+                while (token = strtok_r(rest, "\\", &rest)){
+                    if (*(token -1) == '\\')
+                        token--;
+                    strcat(arg,token);
+                }
+                strcat(arg,"/");
+                token = strtok(NULL,"/");
+            }
+            if (args[i+1])
+                arg[strlen(arg) - 1] = ' ';
+
         }
-        // Amb strtok eliminam els delimitadors que ens indica que volem entrar a un directori amb espais per així enviar arg a chdir
-        char *token, delim[4] = "\\\'\"";
-        token = strtok(temp_arg,delim);
-        while (token){
-            strcat(arg,token);
-            token = strtok(NULL,delim);
+    } else if (strchr(args[1],'\\')){
+        for (int i = 1; args[i] ; i++, strcat(arg," ")){
+            for (char *token=strtok(args[i],"\\"); token; token =strtok(NULL,"\\")){
+                strcat(arg,token);
+            }
         }
-    }else{
+    } else{
         strcpy(arg,args[1]);
     }
-    cd = chdir(arg);
-    if (cd == -1){
+    if (chdir(arg) == -1){
         fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
     }
     return 1;
