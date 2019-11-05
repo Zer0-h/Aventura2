@@ -37,17 +37,15 @@ int main(){
 
 int imprimir_prompt(){
     char *user = getenv("USER"), *home = getenv("HOME"), pwd[COMMAND_LINE_SIZE];
+    int len_home = strlen(home);
     if (*getcwd(pwd,COMMAND_LINE_SIZE) == -1)
         fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
-    int len_home = strlen(home);
     if (strncmp(pwd,home,len_home) == 0){
         char final_pwd[strlen(pwd) - len_home + 1];
         memset(final_pwd,0,sizeof(final_pwd)); // Ho possam tot a 0 perque no hi hagi caràcters que no volem al principi (donava problemes sense això)
         final_pwd[0] = '~';
         strcat(final_pwd,pwd+len_home);
-        
         printf("\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ",user,final_pwd);
-
     } else {
         printf("\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ",user,pwd);
     }
@@ -101,6 +99,7 @@ int check_internal(char **args){
 /*
 S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona és:
 cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
+que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir larga/pr'"\ueba/prueba dir
 */
 
 int internal_cd(char **args){
@@ -130,7 +129,7 @@ int internal_cd(char **args){
                     strcat(arg,token);
                 }
                 strcat(arg,"/");
-            }         
+            }
             if (args[i+1])
                 arg[strlen(arg) - 1] = ' ';
         }
@@ -144,18 +143,22 @@ int internal_cd(char **args){
 }
 
 int internal_export(char **args){
-    if(args[1] && strchr(args[1],'=')){
-        char *env[2];
+    int error = 1;
+    char *env[2];
+    if (args[1]){
         env[0] = strtok(args[1],"=");
-        env[1] = strtok(NULL,"");
+        if (env[1] = strtok(NULL,""))
+            error = 0;
         printf("[internal_export()→ nombre: %s]\n",env[0]);
         printf("[internal_export()→ valor: %s]\n",env[1]);
+    }
+    if (error)
+        fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
+    else{
         printf("[internal_export()→ antiguo valor para %s: %s]\n",env[0],getenv(env[0]));
         if (setenv(env[0],env[1],1) == -1)
             fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
         printf("[internal_export()→ nuevo valor para %s: %s]\n",env[0],getenv(env[0]));
-    } else{
-        fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
     }
     return 1;
 }
