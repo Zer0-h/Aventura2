@@ -100,12 +100,6 @@ int check_internal(char **args){
     return 0;
 }
 
-/*
-S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona és:
-cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
-que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir larga/pr'"\ueba/prueba dir
-*/
-
 int external_command(char **args){
     int status;
     pid_t pid;
@@ -126,6 +120,12 @@ int external_command(char **args){
     }
     return 0;
 }
+
+/*
+S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona és:
+cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
+que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir larga/pr'"\ueba/prueba dir
+*/
 
 int internal_cd(char **args){
     char arg[COMMAND_LINE_SIZE];
