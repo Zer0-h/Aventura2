@@ -57,6 +57,7 @@ int imprimir_prompt(){
 char *read_line(char *line){
     imprimir_prompt();
     fgets (line, COMMAND_LINE_SIZE, stdin);
+    fflush(stdout);
     return line;
 }
 
