@@ -53,6 +53,10 @@ int imprimir_prompt(){
     }
     return 0;
 }
+/*
+Si pwd comença amb /home/user/, substituirem home/user/ per ~
+La funció printa el directori en el que esteim seguit de $
+*/
 
 char *read_line(char *line){
     imprimir_prompt();
@@ -60,6 +64,9 @@ char *read_line(char *line){
     fflush(stdout);
     return line;
 }
+/*
+La funció agafa els argument de l'usuari i retorna la linea
+*/
 
 int execute_line(char *line){
     char *args[ARGS_SIZE];
@@ -69,6 +76,9 @@ int execute_line(char *line){
     }
     return 0;
 }
+/*
+La funció parsea la linea que ha escrit l'usuari i executa el command corresponent
+*/
 int parse_args(char **args, char *line){
     int token_counter = 0;
     char *token, delim[5] = " \t\r\n";
@@ -82,6 +92,11 @@ int parse_args(char **args, char *line){
     args[token_counter] = NULL;
     return token_counter;
 }
+/*
+La funció delimita l'string entrat per l'usuari amb espais i els col·loca a una array de strings.
+Si comença per # ignoram tot el que ve a continuació.
+Al final de l'array d'strings afegim un NULL per saber en següents funcions que ja hem acabat de llegir la línea
+*/
 
 int check_internal(char **args){
     if (args[0]){ // Comprovam que el primer no es nul, strcmp donaria un error si fos així
@@ -99,6 +114,9 @@ int check_internal(char **args){
     }
     return 0;
 }
+/*
+Comproba que volem executar un comand intern i l'executa.
+*/
 
 int external_command(char **args){
     int status;
@@ -112,14 +130,19 @@ int external_command(char **args){
     } else if (pid > 0){
         printf("[execute_line()→ PID padre: %d]\n",getpid());
         wait(&status);
-        printf("[execute_line()→ Proceso hijo %d finalizado con exit(), estado: %d]\n",pid,WEXITSTATUS(status));
-
+        if (WIFEXITED(status)){
+            printf("[execute_line()→ Proceso hijo %d finalizado con exit(), estado: %d]\n",pid,WEXITSTATUS(status)); // En cas de -1 retorna 255
+        }
     } else {
         fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
         exit(-1);
     }
     return 0;
 }
+/*
+Crea un fill amb fork() que executi amb execvp() el comand extern solicitat
+*/
+
 
 /*
 S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona és:
@@ -166,6 +189,9 @@ int internal_cd(char **args){
     }
     return 1;
 }
+/*
+Utilitza la cridad chdir() per cambiar de directori
+*/
 
 int internal_export(char **args){
     int error = 1;
@@ -179,6 +205,10 @@ int internal_export(char **args){
         fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
     return 1;
 }
+
+/*
+La funció assigna un nou valor an una variable de entorn 
+*/
 
 int internal_source(char **args){
     if (args[1]){
@@ -196,6 +226,9 @@ int internal_source(char **args){
         fprintf(stderr,"Error de sintaxis. Uso: source <nombre_fichero>\n");
     return 1;
 }
+/*
+La funció executa una seqüencia de comands dins un fitxer
+*/
 
 int internal_jobs(char **args){
     printf("[internal_jobs()→Esta función mostrará el PID de los procesos que no estén en foreground]\n");
