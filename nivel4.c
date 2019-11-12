@@ -1,3 +1,12 @@
+/*
+SIG_IGN
+SIG_DFL
+
+
+
+Dentro de la función reaper signal(SIGCHLD, reaper); la volvemos a asignar
+*/
+
 #define COMMAND_LINE_SIZE 1024
 #define ARGS_SIZE 64
 #define _POSIX_C_SOURCE 200112L
@@ -7,6 +16,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 /* Las llamadas al sistema están recopiladas en la sección 2 de Man. 
