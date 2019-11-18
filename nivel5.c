@@ -90,7 +90,6 @@ int imprimir_prompt(){
 char *read_line(char *line){
     char * ptr;
     imprimir_prompt();
-    fflush(stdout);
     ptr = fgets (line, COMMAND_LINE_SIZE, stdin);
     if (!ptr) {  //ptr==0
         printf("\r");
@@ -102,6 +101,7 @@ char *read_line(char *line){
            ptr[0] = 0; // Si se omite esta línea aparece error ejecución ": no se encontró la orden"*/
        }
    }
+    fflush(stdout);
     return ptr;
 }
 
@@ -273,9 +273,7 @@ void reaper(int signum){
 
 void ctrlc(int signum){
     signal(SIGINT, ctrlc);
-    printf("\n");
-    fflush(stdout);
-    printf("[ctrlc()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
+    printf("\n[ctrlc()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
     if (jobs_list[0].pid > 0){
         if (strcmp(g_argv,jobs_list[0].command_line)){
             if (kill(jobs_list[0].pid,15) == 0){
@@ -285,12 +283,13 @@ void ctrlc(int signum){
             } else { // Cas es comando kill falla
                 fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
             }
+
         } else {
             printf("[ctrlc()→ Señal 15 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
+            fflush(stdout);
         }
     } else {
         printf("[ctrlc()→ Señal 15 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
+        fflush(stdout);
     }
 }
-
-// NOT FINISHED
