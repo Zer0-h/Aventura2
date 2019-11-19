@@ -1,12 +1,3 @@
-/*
-SIG_IGN
-SIG_DFL
-
-signal()
-
-Dentro de la función reaper signal(SIGCHLD, reaper); la volvemos a asignar
-*/
-
 #define COMMAND_LINE_SIZE 1024
 #define ARGS_SIZE 64
 #define N_JOBS 64
@@ -50,12 +41,7 @@ struct info_process {
 };
 
 static char *g_argv;
-static struct info_process jobs_list[N_JOBS]; // jobs_list[0].pid sólo cogerá el valor del PID del proceso hijo si éste se ha de ejecutar en primer plano, valdrá 0 en caso contrario
-// jobs_list[0].pid vale 0 no tengo proceso en primer plano (solo tengo el prompt), puedo tener todos los procesos que quiera en segundo plano
-// puedo tener pidx que es el proceso que se está ejecutando
-// El pause() del padre sólo se ejecutará mientras el jobs_list[0].pid  != 0.
-
-// En reaper limpiamos el command line de la estructura info process cuando matamos un proceso
+static struct info_process jobs_list[N_JOBS];
 
 int main(int argc, char *argv[]){
     char line[COMMAND_LINE_SIZE];
@@ -231,25 +217,25 @@ int internal_jobs(char **args){
 jobs son procesos que dependan del terminal (que esten en segundo plano y los que yo detenga 'ctrlz')
 */
 
-
 int external_command(char **args){
     pid_t pid;
     pid = fork();
     if (pid == 0){
         signal(SIGCHLD,SIG_DFL);
         signal(SIGINT, SIG_IGN); // Ignoram senyal ctrl+c general
-        printf("[execute_line()→ PID hijo: %d]\n",getpid());
+        printf("[execute_line()→ PID hijo: %d (%s)]\n",getpid(),jobs_list[0].command_line);
         execvp(args[0],args);
-        exit(-1);
+        fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+        exit(1);
     } else if (pid > 0){
-        printf("[execute_line()→ PID padre: %d]\n",getpid());
+        printf("[execute_line()→ PID padre: %d (%s)]\n",getpid(),g_argv);
         jobs_list[0].pid = pid;
-        if (jobs_list[0].pid)
+        while (jobs_list[0].pid)
             pause();
 
     } else {
         fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
-        exit(-1);
+        exit(1);
     }
     return 0;
 }
@@ -280,8 +266,6 @@ void ctrlc(int signum){
         if (strcmp(g_argv,jobs_list[0].command_line)){
             if (kill(jobs_list[0].pid,15) == 0){
                 printf("[ctrlc()→ Señal 15 enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
-                jobs_list[0].pid = 0;
-                memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
             } else { // Cas es comando kill falla
                 fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
             }
@@ -292,5 +276,4 @@ void ctrlc(int signum){
         printf("[ctrlc()→ Señal 15 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
     }
 }
-
-// NOT FINISHED
+// NOT FINISHED, cuando tengo un shell dentro del shell y hago ctrl+d escribe el prompt y luego reaper lo sobrescribe (se puede hacer algo?)
