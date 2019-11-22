@@ -1,46 +1,4 @@
-#define COMMAND_LINE_SIZE 1024
-#define ARGS_SIZE 64
-#define N_JOBS 4
-#define _POSIX_C_SOURCE 200112L
-
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-
-char *read_line(char *line); 
-int execute_line(char *line);
-int parse_args(char **args, char *line);
-int check_internal(char **args); 
-int internal_cd(char **args); 
-int internal_export(char **args); 
-int internal_source(char **args); 
-int internal_jobs(); 
-int imprimir_prompt();
-int external_command(char **args);
-void reaper(int signum);
-void ctrlc(int signum);
-int jobs_list_add(pid_t pid, char status, char *command_line);
-int jobs_list_find(pid_t pid);
-int  jobs_list_remove(int pos);
-void ctrlz(int signum);
-int is_background(char **args);
-int internal_fg(char **args);
-int internal_bg(char **args);
-
-struct info_process {
-    pid_t pid;
-    char status; // ’E’, ‘D’, ‘F’
-    char command_line[COMMAND_LINE_SIZE];
-};
-
-static char *g_argv;
-static int n_pids;
-static struct info_process jobs_list[N_JOBS];
+#include "nivel5.h"
 
 int main(int argc, char *argv[]){
     char line[COMMAND_LINE_SIZE];
@@ -56,23 +14,34 @@ int main(int argc, char *argv[]){
     return 0;
 }
 
+/*
+ * int imprimir_prompt()
+ * 
+ * Amb la funció getenv("USER") i getcwd podem contruir el nostre prompt.
+ * A més tal i com fa bash si el nostre directori comença per el directori
+ * /home/user ho substituirem per ~
+ * 
+ */
 int imprimir_prompt(){
     char *user = getenv("USER"), *home = getenv("HOME"), pwd[COMMAND_LINE_SIZE];
     int len_home = strlen(home);
     if (*getcwd(pwd,COMMAND_LINE_SIZE) == -1)
         perror("getcwd");
     if (strncmp(pwd,home,len_home) == 0){
-        char final_pwd[strlen(pwd) - len_home + 1];
-        memset(final_pwd,0,sizeof(final_pwd)); // Ho possam tot a 0 perque no hi hagi caràcters que no volem al principi (donava problemes sense això)
-        final_pwd[0] = '~';
-        strcat(final_pwd,pwd+len_home);
-        printf("\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ",user,final_pwd);
+        printf("\033[1;31m%s\033[0m:\033[1;32m~%s\033[0m$ ",user,pwd+len_home);
     } else {
         printf("\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ",user,pwd);
     }
     return 0;
 }
 
+/*
+ * char *read_line(char *line)
+ * 
+ * Crida a imprimir_prompt i llegeix una línia de la consola
+ * Torna el punter a la línia que hem llegit
+ * 
+ */
 char *read_line(char *line){
     char * ptr;
     imprimir_prompt();
@@ -80,7 +49,7 @@ char *read_line(char *line){
     ptr = fgets (line, COMMAND_LINE_SIZE, stdin);
     if (!ptr) {
         printf("\r");
-       if (feof(stdin)) {
+       if (feof(stdin)) { // Si s'ha produit un EOF (hem pulsat CTRL+D) sortirem del shell
            imprimir_prompt(); // tal i com tenim a bash ens monstra el prompt + exit quan sortim amb ctrl+d
            printf("exit\n"); 
            exit(0);
@@ -95,7 +64,7 @@ char *read_line(char *line){
 int execute_line(char *line){
     char *args[ARGS_SIZE];
     strcpy(jobs_list[0].command_line,line);
-    jobs_list[0].command_line[strlen(line)-1] = 0; // Eliminam el caracter \n
+    jobs_list[0].command_line[strlen(line)-1] = 0; // Eliminam el caràcter \n
     parse_args(args,line);
     if (args[0]){
         if (check_internal(args)){
@@ -140,12 +109,13 @@ int check_internal(char **args){
     return 0;
 }
 
+//     INTERNAL COMMANDS
+
 /*
 S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona com a bash és:
 cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
 que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir larga/pr'"\ueba/prueba dir
 */
-
 int internal_cd(char **args){
     char arg[COMMAND_LINE_SIZE];
     memset(arg,0,sizeof(arg));
@@ -216,9 +186,18 @@ int internal_source(char **args){
     return 0;
 }
 
-int internal_jobs(){
-    for (int i = 1; i <= n_pids; i++){
-        printf("[%d] %d\t%c\t%s\n",i,jobs_list[i].pid,jobs_list[i].status,jobs_list[i].command_line);
+int internal_jobs(char **args){
+    if (args[1]){
+        int pos = atoi(args[1]);
+        if (pos < 1 || pos > n_pids){
+            fprintf(stderr,"jobs %s: no existe tal trabjo\n",args[1]);
+        } else {
+            printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,jobs_list[pos].status,jobs_list[pos].command_line);
+        }
+    } else {
+        for (int i = 1; i <= n_pids; i++){
+            printf("[%d] %d\t%c\t%s\n",i,jobs_list[i].pid,jobs_list[i].status,jobs_list[i].command_line);
+        }
     }
     return 0;
 }
@@ -226,167 +205,15 @@ int internal_jobs(){
 jobs son procesos que dependan del terminal (que esten en segundo plano y los que yo detenga 'ctrlz')
 */
 
-int external_command(char **args){
-    pid_t pid;
-    int bkg = is_background(args);
-    if (bkg && n_pids >= N_JOBS -1){
-        fprintf(stderr,"Error, no se pueden añadir más procesos en segundo plano\n");
-        return 1;
-    }
-    pid = fork();
-    if (pid == 0){
-        signal(SIGCHLD,SIG_DFL);
-        signal(SIGINT, SIG_IGN); // Ignoram senyal ctrl+c general
-        if (bkg){
-            signal(SIGTSTP,SIG_IGN);
-        }
-        execvp(args[0],args);
-        fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
-        exit(1);
-    } else if (pid > 0){
-        printf("[execute_line()→ PID padre: %d (%s)]\n",getpid(),g_argv);
-        printf("[execute_line()→ PID hijo: %d (%s)]\n",pid,jobs_list[0].command_line);
-        if (bkg){
-            jobs_list_add(pid,'E',jobs_list[0].command_line);
-            memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
-        } else{
-            jobs_list[0].pid = pid;
-            while (jobs_list[0].pid)
-                pause();
-        }
-    } else {
-        perror("fork");
-        exit(1);
-    }
-    return 0;
-}
 
-void reaper(int signum){
-    pid_t pid;
-    int status;
-    signal(SIGCHLD,reaper);
-    while ((pid=waitpid((pid_t)(-1), &status, WNOHANG)) > 0 ){
-        int position;
-        if (pid == jobs_list[0].pid){
-            if (WIFEXITED(status)){
-                printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado con exit code %d]\n",pid,jobs_list[0].command_line,WEXITSTATUS(status));
-            } else if (WIFSIGNALED(status)) {
-                printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado por señal %d]\n",pid,jobs_list[0].command_line,WTERMSIG(status));
-            }
-            jobs_list[0].pid = 0;
-        } else if (position = jobs_list_find(pid)){ // Si trobam es pid a jobs_list
-            printf("\n");
-            if (WIFEXITED(status)){
-                printf("[reaper()→ Proceso hijo %d en background (%s) finalizado con exit code %d]\n",pid,jobs_list[position].command_line,WEXITSTATUS(status));
-                fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] con status %d\n",pid,jobs_list[position].command_line,position,WEXITSTATUS(status));
-            } else if (WIFSIGNALED(status)) {
-                printf("[reaper()→ Proceso hijo %d en background (%s) finalizado por señal %d]\n",pid,jobs_list[position].command_line,WTERMSIG(status));
-                fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] por señal %d\n",pid,jobs_list[position].command_line,position,WTERMSIG(status));
-            }
-            jobs_list_remove(position);
-        }
-    }
-}
 
-void ctrlc(int signum){
-    signal(SIGINT, ctrlc);
-    printf("\n");
-    fflush(stdout);
-    printf("[ctrlc()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
-    if (jobs_list[0].pid > 0){
-        if (strcmp(g_argv,jobs_list[0].command_line)){
-            if (kill(jobs_list[0].pid,15) == 0){
-                printf("[ctrlc()→ Señal 15 enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
-            } else {
-                perror("kill");
-            }
-        } else {
-            printf("[ctrlc()→ Señal 15 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
-        }
-    } else {
-        printf("[ctrlc()→ Señal 15 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
-    }
-}
+/*
+internal_fg(char **args)
+    Mou un treball a foreground.
 
-void ctrlz(int signum){
-    signal(SIGTSTP,ctrlz);
-    printf("\n[ctrlz()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
-    if (jobs_list[0].pid > 0){
-        if (strcmp(g_argv,jobs_list[0].command_line)){
-            if (n_pids >= N_JOBS -1){
-                fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
-                if(kill(jobs_list[0].pid,18) == -1) // Per alguna raó aturava el procés encara que no hi arribés a enviar SIGTSTP, aquesta passa és obligatoria
-                    perror("kill");
-            } else if(kill(jobs_list[0].pid,20) == 0){
-                printf("[ctrlz()→ Señal 20 (SIGTSTP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
-                jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
-                jobs_list[0].pid = 0;
-            } else {
-                perror("kill");
-            }
-        } else {
-            printf("[ctrlz()→ Señal 20 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
-        }
-    } else {
-        printf("[ctrlz()→ Señal 20 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
-    }
-}
-
-int jobs_list_add(pid_t pid, char status, char *command_line){
-    n_pids++;
-    jobs_list[n_pids].pid = pid;
-    jobs_list[n_pids].status = status;
-    strcpy(jobs_list[n_pids].command_line,command_line);
-    printf("[%d] %d\t%c\t%s\n",n_pids,jobs_list[n_pids].pid,jobs_list[n_pids].status,jobs_list[n_pids].command_line);
-    return 0;
-} // Aquí no tenim condicionals perquè en casos on la llista de jobs estigui plena ens interesa saber-ho abans de cridar al comand jobs_list_add i
-  // mai el cridarem si ja esteim en es límit de jobs. Així si volem fer un procés en background i ja esteim al límit ni tal sols cridarem en es fork.
-  // Si pulsam ctrl+z i esteim plens, no l'aturarem.
-
-int jobs_list_find(pid_t pid){
-    int position = 1;
-    while (position < N_JOBS){
-        if (jobs_list[position].pid ==  pid)
-            return position;
-        position++;
-    }
-    return 0; // En el cas que no el trobem, se podria llevar, ja qe amb les actualitzacions que hem fet del codi mai arribarem al cas on demanam trobar
-              // un procés que no estigui a la llista.
-}
-
-int  jobs_list_remove(int pos){
-    jobs_list[pos] = jobs_list[n_pids];
-    jobs_list[n_pids].pid = 0;
-    n_pids--;
-    return 0;
-}
-
-int is_background(char **args){
-    for (int i = 1; args[i] ; i++){
-        if (args[i][0] == '&'){
-            args[i] = NULL;
-            return 1; // True
-        }
-    }
-    return 0; // False
-}
-
-/*******************************
-        TO DO LIST
-********************************
-
-Recolocar funcions perquè el seu ordre tengui sentit
-Revisar si totes les cridades al sistema tenen un control d'errors (al acabar tot)
-    Aquestes son open(), close(), chdir(), getcwd(), dup(), dup2(), execvp(), exit(), fork(), getpid(), kill(), pause(), 
-    signal(), wait(), waitpid(). Las llamadas al sistema están recopiladas en la sección 2 de Man
-Implementar un header
-Revisar internal_cd i provar més casos.
+    Possa el treball identificat per args[1] (JOB_SPEC) a foreground.
+    Si JOB_SPEC no està present o 
 */
-int parse_int(char * args){
-    int pos = 0;
-    return pos;
-}
-
 int internal_fg(char **args){
     if (args[1]){
         int pos = atoi(args[1]);
@@ -442,4 +269,165 @@ int internal_bg(char **args){
         fprintf(stderr, "Error de sintaxis. Uso: bg <job_id>\n");
     }
     return 0;
+}
+
+int external_command(char **args){
+    pid_t pid;
+    int bkg = is_background(args);
+    if (bkg && n_pids >= N_JOBS -1){
+        fprintf(stderr,"Error, no se pueden añadir más procesos en segundo plano\n");
+        return 1;
+    }
+    pid = fork();
+    if (pid == 0){
+        signal(SIGCHLD,SIG_DFL);
+        signal(SIGINT, SIG_IGN); // Ignoram senyal ctrl+c general
+        if (bkg){
+            signal(SIGTSTP,SIG_IGN);
+        }
+        execvp(args[0],args);
+        fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
+        exit(1);
+    } else if (pid > 0){
+        printf("[execute_line()→ PID padre: %d (%s)]\n",getpid(),g_argv);
+        printf("[execute_line()→ PID hijo: %d (%s)]\n",pid,jobs_list[0].command_line);
+        if (bkg){
+            jobs_list_add(pid,'E',jobs_list[0].command_line);
+            memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
+        } else{
+            jobs_list[0].pid = pid;
+            while (jobs_list[0].pid)
+                pause();
+        }
+    } else {
+        perror("fork");
+        exit(1);
+    }
+    return 0;
+}
+
+int is_background(char **args){
+    for (int i = 1; args[i] ; i++){
+        if (args[i][0] == '&'){
+            args[i] = NULL;
+            return 1; // True
+        }
+    }
+    return 0; // False
+}
+
+int jobs_list_add(pid_t pid, char status, char *command_line){
+    n_pids++;
+    jobs_list[n_pids].pid = pid;
+    jobs_list[n_pids].status = status;
+    strcpy(jobs_list[n_pids].command_line,command_line);
+    printf("[%d] %d\t%c\t%s\n",n_pids,jobs_list[n_pids].pid,jobs_list[n_pids].status,jobs_list[n_pids].command_line);
+    return 0;
+} // Aquí no tenim condicionals perquè en casos on la llista de jobs estigui plena ens interesa saber-ho abans de cridar al comand jobs_list_add i
+  // mai el cridarem si ja esteim en es límit de jobs. Així si volem fer un procés en background i ja esteim al límit ni tal sols cridarem en es fork.
+  // Si pulsam ctrl+z i esteim plens, no l'aturarem.
+
+int jobs_list_find(pid_t pid){
+    int position = 1;
+    while (position < N_JOBS){
+        if (jobs_list[position].pid ==  pid)
+            return position;
+        position++;
+    }
+    return 0; // En el cas que no el trobem, se podria llevar, ja qe amb les actualitzacions que hem fet del codi mai arribarem al cas on demanam trobar
+              // un procés que no estigui a la llista.
+}
+
+int  jobs_list_remove(int pos){
+    jobs_list[pos] = jobs_list[n_pids];
+    jobs_list[n_pids].pid = 0;
+    n_pids--;
+    return 0;
+}
+
+/*******************************
+        TO DO LIST
+********************************
+
+Recolocar funcions perquè el seu ordre tengui sentit
+Revisar si totes les cridades al sistema tenen un control d'errors (al acabar tot)
+    Aquestes son open(), close(), chdir(), getcwd(), dup(), dup2(), execvp(), exit(), fork(), getpid(), kill(), pause(), 
+    signal(), wait(), waitpid(). Las llamadas al sistema están recopiladas en la sección 2 de Man
+Revisar internal_cd i provar més casos.
+README.txt
+*/
+
+//      CONTROLADORS
+
+void reaper(int signum){
+    pid_t pid;
+    int status;
+    signal(SIGCHLD,reaper);
+    while ((pid=waitpid((pid_t)(-1), &status, WNOHANG)) > 0 ){
+        int position;
+        if (pid == jobs_list[0].pid){
+            if (WIFEXITED(status)){
+                printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado con exit code %d]\n",pid,jobs_list[0].command_line,WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado por señal %d]\n",pid,jobs_list[0].command_line,WTERMSIG(status));
+            }
+            jobs_list[0].pid = 0;
+            memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
+        } else if (position = jobs_list_find(pid)){ // Si trobam es pid a jobs_list
+            printf("\n");
+            if (WIFEXITED(status)){
+                printf("[reaper()→ Proceso hijo %d en background (%s) finalizado con exit code %d]\n",pid,jobs_list[position].command_line,WEXITSTATUS(status));
+                fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] con status %d\n",pid,jobs_list[position].command_line,position,WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                printf("[reaper()→ Proceso hijo %d en background (%s) finalizado por señal %d]\n",pid,jobs_list[position].command_line,WTERMSIG(status));
+                fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] por señal %d\n",pid,jobs_list[position].command_line,position,WTERMSIG(status));
+            }
+            jobs_list_remove(position);
+        }
+    }
+}
+
+void ctrlc(int signum){
+    signal(SIGINT, ctrlc);
+    printf("\n");
+    fflush(stdout);
+    printf("[ctrlc()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
+    if (jobs_list[0].pid > 0){
+        if (strcmp(g_argv,jobs_list[0].command_line)){
+            if (kill(jobs_list[0].pid,15) == 0){
+                printf("[ctrlc()→ Señal 15 enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
+            } else {
+                perror("kill");
+            }
+        } else {
+            printf("[ctrlc()→ Señal 15 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
+        }
+    } else {
+        printf("[ctrlc()→ Señal 15 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
+    }
+}
+
+void ctrlz(int signum){
+    signal(SIGTSTP,ctrlz);
+    printf("\n[ctrlz()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
+    if (jobs_list[0].pid > 0){
+        if (strcmp(g_argv,jobs_list[0].command_line)){
+            if (n_pids >= N_JOBS -1){
+                fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
+                if(kill(jobs_list[0].pid,18) == -1) // Per alguna raó aturava el procés encara que no hi arribés a enviar SIGTSTP, aquesta passa és obligatoria
+                    perror("kill");
+            } else if(kill(jobs_list[0].pid,20) == 0){
+                printf("[ctrlz()→ Señal 20 (SIGTSTP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
+                jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
+                jobs_list[0].pid = 0;
+                memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
+            } else {
+                perror("kill");
+            }
+        } else {
+            printf("[ctrlz()→ Señal 20 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
+        }
+    } else {
+        printf("[ctrlz()→ Señal 20 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
+    }
 }
