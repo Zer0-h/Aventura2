@@ -1,37 +1,6 @@
-/*
-añadimos bkg tipo boolean o int como is_background() bkg = is_background() debajo de execute_line
-
-dentro del hijo, si bkg es verdadero añadimos signal(SIGSTP,SIG_IGN); es decir ignora el CTRL+Z
-si es falso hace la sigdefault singal(SIGSTP,SIG_DFL)
-
-ignorará la interrupción Ctrl+C (le asociamos la acción SIG_IGN en vez del SIG_DFL antes de llamar a execvp()) 
-tanto si el proceso es en background como foreground. Mantenemos el manejador propio para el padre.
-
-ejecutará la acción por defecto SIG_DFL para la señal SIGCHLD tanto si es en background o en foreground.
-
-padre:
-si se ha creado un hijo en background, añadirá un nuevo trabajo a la lista mediante la función jobs_list_add(). 
-
-si no, al igual que en el nivel anterior, dará valores a los campos del proceso en foreground ( jobs_list[0]) y 
-ejecutará un pause() en vez del wait(), mientras haya un proceso ejecutándose en foreground. 
-
-es decir un if a lo anterior, si else ejecutamos lo del nivel anterior
-
-
-
-
-cuando cualquiera acabe ponemos el último en lugar del que ha terminado. Por ejemplo si tenemos 1 2 3 4 5 y el 2 acaba entonces el 5 pasaria a ser el 2
-
-
-
-
-añadimos signal(SIGSTP,ctrlz)
-
-
-*/
 #define COMMAND_LINE_SIZE 1024
 #define ARGS_SIZE 64
-#define N_JOBS 64
+#define N_JOBS 4
 #define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
@@ -42,14 +11,6 @@ añadimos signal(SIGSTP,ctrlz)
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-/* Las llamadas al sistema están recopiladas en la sección 2 de Man. 
- * Ejemplos en nuestra aventura: open(), close(), chdir(), getcwd(), 
- * dup(), dup2(), execvp(), exit(), fork(), getpid(), kill(), pause(), 
- * signal(), wait(), waitpid(). Hay algunas llamadas al sistema que 
- * siempre tienen éxito, y no retornan ningún valor para indicar si 
- * se ha producido un error; ejemplos en nuestra aventura: getpid(), 
- * getppid()
- */
 
 char *read_line(char *line); 
 int execute_line(char *line);
@@ -68,16 +29,13 @@ int jobs_list_find(pid_t pid);
 int  jobs_list_remove(int pos);
 void ctrlz(int signum);
 int is_background(char **args);
-
-// FINALIZAR CUANDO TENGA TIEMPO (OPTATIVO)
-int internal_fg(char **args); // Implementación del comando interno fg
-int internal_bg(char **args); // Implementación del comando interno bg
-
+int internal_fg(char **args);
+int internal_bg(char **args);
 
 struct info_process {
     pid_t pid;
     char status; // ’E’, ‘D’, ‘F’
-    char command_line[COMMAND_LINE_SIZE]; // Comando
+    char command_line[COMMAND_LINE_SIZE];
 };
 
 static char *g_argv;
@@ -92,8 +50,6 @@ int main(int argc, char *argv[]){
     g_argv = argv[0];
     jobs_list[0].pid = 0;
     n_pids = 0;
-    //memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
-    // Toca probar si no da problemas el quitar el memset
     while (read_line(line)){
         execute_line(line);
     }
@@ -104,7 +60,7 @@ int imprimir_prompt(){
     char *user = getenv("USER"), *home = getenv("HOME"), pwd[COMMAND_LINE_SIZE];
     int len_home = strlen(home);
     if (*getcwd(pwd,COMMAND_LINE_SIZE) == -1)
-        fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+        perror("getcwd");
     if (strncmp(pwd,home,len_home) == 0){
         char final_pwd[strlen(pwd) - len_home + 1];
         memset(final_pwd,0,sizeof(final_pwd)); // Ho possam tot a 0 perque no hi hagi caràcters que no volem al principi (donava problemes sense això)
@@ -142,7 +98,7 @@ int execute_line(char *line){
     jobs_list[0].command_line[strlen(line)-1] = 0; // Eliminam el caracter \n
     parse_args(args,line);
     if (args[0]){
-        if (!check_internal(args)){
+        if (check_internal(args)){
             external_command(args);
         }
     }
@@ -165,21 +121,27 @@ int parse_args(char **args, char *line){
 
 int check_internal(char **args){
     if (strcmp(args[0],"cd") == 0){
-        return internal_cd(args);
+        internal_cd(args);
     } else if (strcmp(args[0],"export") == 0){
-        return internal_export(args);
+        internal_export(args);
     } else if (strcmp(args[0],"source") == 0){
-        return internal_source(args);
+        internal_source(args);
     } else if (strcmp(args[0],"jobs") == 0){
-        return internal_jobs(args);
+        internal_jobs(args);
+    } else if (strcmp(args[0],"fg") == 0){
+        internal_fg(args);
+    } else if (strcmp(args[0],"bg") == 0){
+        internal_bg(args);
     } else if (strcmp(args[0],"exit") == 0){
         exit(0);
+    } else {
+        return 1;
     }
     return 0;
 }
 
 /*
-S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona és:
+S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona com a bash és:
 cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
 que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir larga/pr'"\ueba/prueba dir
 */
@@ -219,9 +181,9 @@ int internal_cd(char **args){
         strcpy(arg,args[1]);
     }
     if (chdir(arg) == -1){
-        fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+        perror("chdir");
     }
-    return 1;
+    return 0;
 }
 
 int internal_export(char **args){
@@ -230,11 +192,11 @@ int internal_export(char **args){
     env[0] = strtok(args[1],"=");
     if (env[1] = strtok(NULL,"")){
         if (setenv(env[0],env[1],1) == -1)
-            fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+            perror("setenv");
     }
     else
         fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
-    return 1;
+    return 0;
 }
 
 int internal_source(char **args){
@@ -248,17 +210,17 @@ int internal_source(char **args){
             }
         fclose(fp);
         } else
-            fprintf(stderr,"Error: No se ha encontrado el archivo '%s'\n",args[1]);
+            fprintf(stderr,"Source: No se ha encontrado el archivo '%s'\n",args[1]);
     } else
         fprintf(stderr,"Error de sintaxis. Uso: source <nombre_fichero>\n");
-    return 1;
+    return 0;
 }
 
 int internal_jobs(){
     for (int i = 1; i <= n_pids; i++){
         printf("[%d] %d\t%c\t%s\n",i,jobs_list[i].pid,jobs_list[i].status,jobs_list[i].command_line);
     }
-    return 1;
+    return 0;
 }
 /*
 jobs son procesos que dependan del terminal (que esten en segundo plano y los que yo detenga 'ctrlz')
@@ -267,21 +229,25 @@ jobs son procesos que dependan del terminal (que esten en segundo plano y los qu
 int external_command(char **args){
     pid_t pid;
     int bkg = is_background(args);
+    if (bkg && n_pids >= N_JOBS -1){
+        fprintf(stderr,"Error, no se pueden añadir más procesos en segundo plano\n");
+        return 1;
+    }
     pid = fork();
     if (pid == 0){
         signal(SIGCHLD,SIG_DFL);
         signal(SIGINT, SIG_IGN); // Ignoram senyal ctrl+c general
-        if (bkg)
+        if (bkg){
             signal(SIGTSTP,SIG_IGN);
+        }
         execvp(args[0],args);
-        fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+        fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
         exit(1);
     } else if (pid > 0){
         printf("[execute_line()→ PID padre: %d (%s)]\n",getpid(),g_argv);
         printf("[execute_line()→ PID hijo: %d (%s)]\n",pid,jobs_list[0].command_line);
         if (bkg){
-            if (jobs_list_add(pid,'E',jobs_list[0].command_line))
-                fprintf(stderr,"No se pueden añadir más procesos en segundo plano\n");
+            jobs_list_add(pid,'E',jobs_list[0].command_line);
             memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
         } else{
             jobs_list[0].pid = pid;
@@ -289,7 +255,7 @@ int external_command(char **args){
                 pause();
         }
     } else {
-        fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+        perror("fork");
         exit(1);
     }
     return 0;
@@ -300,6 +266,7 @@ void reaper(int signum){
     int status;
     signal(SIGCHLD,reaper);
     while ((pid=waitpid((pid_t)(-1), &status, WNOHANG)) > 0 ){
+        int position;
         if (pid == jobs_list[0].pid){
             if (WIFEXITED(status)){
                 printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado con exit code %d]\n",pid,jobs_list[0].command_line,WEXITSTATUS(status));
@@ -307,8 +274,7 @@ void reaper(int signum){
                 printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado por señal %d]\n",pid,jobs_list[0].command_line,WTERMSIG(status));
             }
             jobs_list[0].pid = 0;
-        } else {
-            int position = jobs_list_find(pid);
+        } else if (position = jobs_list_find(pid)){ // Si trobam es pid a jobs_list
             printf("\n");
             if (WIFEXITED(status)){
                 printf("[reaper()→ Proceso hijo %d en background (%s) finalizado con exit code %d]\n",pid,jobs_list[position].command_line,WEXITSTATUS(status));
@@ -331,8 +297,8 @@ void ctrlc(int signum){
         if (strcmp(g_argv,jobs_list[0].command_line)){
             if (kill(jobs_list[0].pid,15) == 0){
                 printf("[ctrlc()→ Señal 15 enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
-            } else { // Cas es comando kill falla
-                fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+            } else {
+                perror("kill");
             }
         } else {
             printf("[ctrlc()→ Señal 15 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
@@ -347,49 +313,50 @@ void ctrlz(int signum){
     printf("\n[ctrlz()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
     if (jobs_list[0].pid > 0){
         if (strcmp(g_argv,jobs_list[0].command_line)){
-            if(kill(jobs_list[0].pid,20) == 0){
+            if (n_pids >= N_JOBS -1){
+                fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
+                if(kill(jobs_list[0].pid,18) == -1) // Per alguna raó aturava el procés encara que no hi arribés a enviar SIGTSTP, aquesta passa és obligatoria
+                    perror("kill");
+            } else if(kill(jobs_list[0].pid,20) == 0){
                 printf("[ctrlz()→ Señal 20 (SIGTSTP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
-                // Cambiar el status del proceso a ‘D’ (detenido). ??????????
-                if (jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line))
-                    fprintf(stderr,"No se pueden añadir más procesos en segundo plano\n");
-                jobs_list[0].pid = 0; // memset too?
+                jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
+                jobs_list[0].pid = 0;
             } else {
-                fprintf(stderr, "Error %d: %s\n", errno, strerror(errno));
+                perror("kill");
             }
         } else {
             printf("[ctrlz()→ Señal 20 no enviada por %d (%s) debido a que su proceso en foreground es el shell]\n",getpid(),g_argv);
         }
-
     } else {
         printf("[ctrlz()→ Señal 20 no enviada por %d debido a que no hay proceso en foreground]\n",getpid());
     }
 }
 
 int jobs_list_add(pid_t pid, char status, char *command_line){
-    if (n_pids < N_JOBS -1){
-        n_pids++;
-        jobs_list[n_pids].pid = pid;
-        jobs_list[n_pids].status = status;
-        strcpy(jobs_list[n_pids].command_line,command_line);
-        printf("[%d] %d\t%c\t%s\n",n_pids,jobs_list[n_pids].pid,jobs_list[n_pids].status,jobs_list[n_pids].command_line);
-        return 0;
-    } else {
-        return 1; // ja esteim al límit dels jobs que podem tenir (control de errors)
-    }
-}
+    n_pids++;
+    jobs_list[n_pids].pid = pid;
+    jobs_list[n_pids].status = status;
+    strcpy(jobs_list[n_pids].command_line,command_line);
+    printf("[%d] %d\t%c\t%s\n",n_pids,jobs_list[n_pids].pid,jobs_list[n_pids].status,jobs_list[n_pids].command_line);
+    return 0;
+} // Aquí no tenim condicionals perquè en casos on la llista de jobs estigui plena ens interesa saber-ho abans de cridar al comand jobs_list_add i
+  // mai el cridarem si ja esteim en es límit de jobs. Així si volem fer un procés en background i ja esteim al límit ni tal sols cridarem en es fork.
+  // Si pulsam ctrl+z i esteim plens, no l'aturarem.
 
 int jobs_list_find(pid_t pid){
     int position = 1;
-    printf("\npid = %d\njobs_list[1].pid = %d\n",pid,jobs_list[1].pid);
-    while (jobs_list[position].pid !=  pid){
-        printf("\npid = %d\njobs_list[%d].pid = %d\n",pid,position,jobs_list[position].pid);
+    while (position < N_JOBS){
+        if (jobs_list[position].pid ==  pid)
+            return position;
         position++;
     }
-    return position;
+    return 0; // En el cas que no el trobem, se podria llevar, ja qe amb les actualitzacions que hem fet del codi mai arribarem al cas on demanam trobar
+              // un procés que no estigui a la llista.
 }
 
 int  jobs_list_remove(int pos){
     jobs_list[pos] = jobs_list[n_pids];
+    jobs_list[n_pids].pid = 0;
     n_pids--;
     return 0;
 }
@@ -404,4 +371,75 @@ int is_background(char **args){
     return 0; // False
 }
 
-// NOTA al fer ctrl+d intentar possar exit sense sobrescriure el prompt del que esteim sortint
+/*******************************
+        TO DO LIST
+********************************
+
+Recolocar funcions perquè el seu ordre tengui sentit
+Revisar si totes les cridades al sistema tenen un control d'errors (al acabar tot)
+    Aquestes son open(), close(), chdir(), getcwd(), dup(), dup2(), execvp(), exit(), fork(), getpid(), kill(), pause(), 
+    signal(), wait(), waitpid(). Las llamadas al sistema están recopiladas en la sección 2 de Man
+Implementar un header
+Revisar internal_cd i provar més casos.
+*/
+int parse_int(char * args){
+    int pos = 0;
+    return pos;
+}
+
+int internal_fg(char **args){
+    if (args[1]){
+        int pos = atoi(args[1]);
+        if (pos < 1 || pos > n_pids){
+            fprintf(stderr,"fg %s: no existe tal trabjo\n",args[1]);
+            return 0;
+        }
+        if (jobs_list[pos].status == 'D'){
+            jobs_list[pos].status = 'E';
+            if (kill(jobs_list[pos].pid,18) == 0){
+                printf("[internal_fg()→ Señal 18 (SIGCONT) enviada a %d (%s)]\n",jobs_list[pos].pid,jobs_list[pos].command_line);
+            } else {
+                perror("kill");
+            }
+        }
+        if (jobs_list[pos].command_line[strlen(jobs_list[pos].command_line) -1] == '&'){
+            jobs_list[pos].command_line[strlen(jobs_list[pos].command_line) -2] = 0;
+        }
+        strcpy(jobs_list[0].command_line,jobs_list[pos].command_line);
+        jobs_list[0].pid = jobs_list[pos].pid;
+        puts(jobs_list[pos].command_line);
+        jobs_list_remove(pos);
+        while (jobs_list[0].pid)
+            pause();
+    } else{
+        fprintf(stderr, "Error de sintaxis. Uso: fg <job_id>\n");
+    }
+    return 0;
+} // Que feim en el cas 'fg 1 asjdbisabdisbixoa', donam syntax error o feim simplement fg 1 i ignoram lo que ve després d'aquest
+  // INFO: a bash ignoram lo que ve després del número
+  // Cas sleep 20 &sleep 20 a bash cream un procés a background i un a foreground, que feim aqui? modificar parse_args?
+
+int internal_bg(char **args){
+    if (args[1]){
+        int pos = atoi(args[1]);
+        if (pos < 1 || pos > n_pids){
+            fprintf(stderr,"bg %s: no existe tal trabjo\n",args[1]);
+            return 0;
+        }
+        if (jobs_list[pos].status == 'E'){
+            fprintf(stderr,"bg: el trabajo %d ja está en segundo plano\n",pos);
+            return 0;
+        }
+        jobs_list[pos].status = 'E';
+        strcat(jobs_list[pos].command_line," &");
+        if (kill(jobs_list[pos].pid,18) == 0){
+            printf("[internal_bg()→ señal 18 (SIGCONT) enviada a %d (%s)]\n",jobs_list[pos].pid,jobs_list[pos].command_line);
+            printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,jobs_list[pos].status,jobs_list[pos].command_line);
+        } else {
+            perror("kill");
+        }
+    } else {
+        fprintf(stderr, "Error de sintaxis. Uso: bg <job_id>\n");
+    }
+    return 0;
+}
