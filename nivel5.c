@@ -61,6 +61,13 @@ char *read_line(char *line){
     return ptr;
 }
 
+/*
+ * int execute line(char *line)
+ * 
+ * Cridarà a parse args per obtenir la línia que l'usuari ha introdui fragmentada en tokens.
+ * Passam els tokens a la función boolena check_internal() perquè ens determini si és un comand
+ * intern o extern * 
+*/
 int execute_line(char *line){
     char *args[ARGS_SIZE];
     strcpy(jobs_list[0].command_line,line);
@@ -74,6 +81,15 @@ int execute_line(char *line){
     return 0;
 }
 
+
+/*
+ * int parse_args(char **args, char *line)
+ * 
+ * Trosseja la línia obtinguda mitjançant la funció strtok(). Ignorarà els comentaris
+ * que comencin per # i afegirà com a darrer argument a l'string de caràcters NULL.
+ * Així en altres funcions podrem saber quan acaba es loop de llegir tokens.
+ *  
+ */ 
 int parse_args(char **args, char *line){
     int token_counter = 0;
     char *token, delim[5] = " \t\r\n";
@@ -88,6 +104,11 @@ int parse_args(char **args, char *line){
     return token_counter;
 }
 
+
+/*
+ * int check_internal(char **args)
+ * És una funció booleana que troba si args[0] és un ordre interna, si ho és l'executarà i tornarà 0.
+ */
 int check_internal(char **args){
     if (strcmp(args[0],"cd") == 0){
         internal_cd(args);
@@ -115,6 +136,19 @@ int check_internal(char **args){
 S'ha comprobat que funcioni per a directoris aparentment conflictius, un cas que funciona com a bash és:
 cd Aventura2/'prueba dir'/p\r\u\e\b\a/\"/'pr\"ueba dir larga'/pr\'\"\\ueba/prueba\ dir
 que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir larga/pr'"\ueba/prueba dir
+*/
+
+/*
+ * int internal_cd(char **args)
+ * Utilitza la cridad al sistema chdir() per canviar de directori. Si l'argument de cd té \ , " o '
+ * haurem de tractar els arguments que ens han passat.
+ * El caràcter \ s'eliminarà i deixarem el caràcter que vengui després d'ell (encara que sigui una altra \).
+ * A més si el possam al final d'una parauala indicam que volem un espai.
+ * Tant " com ' indicaran el principi i el final d'un directori que contengui un nombre ams espais 
+ * 
+ * Si cd no té arguments canviarem al directori HOME.
+ *  
+ * exemple: cd sistemes\ operatius, cd 'sistemes operatius' i cd "sistemes operatius" ens duran al mateix directori que se diu <prueba dir>
 */
 int internal_cd(char **args){
     char arg[COMMAND_LINE_SIZE];
@@ -156,6 +190,12 @@ int internal_cd(char **args){
     return 0;
 }
 
+
+/*
+ * internal_export(char **args)
+ * Descompossa en tokens l'argument NOM=VALOR. Si la sintaxis és incorrecta li notificarem a l'usuari.
+ * Mitjançant la funció setenv() assignarem un valor a una variable d'entorn
+*/
 int internal_export(char **args){
     int error = 1;
     char *env[2];
@@ -168,6 +208,14 @@ int internal_export(char **args){
         fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
     return 0;
 }
+
+/*
+ * internal_source(char **args)
+ * 
+ * Aquesta funció obrirà un arxiu i executarà les ordres que hi ha en aquest línia per línia.
+ * 
+ * 
+*/
 
 int internal_source(char **args){
     if (args[1]){
@@ -186,6 +234,12 @@ int internal_source(char **args){
     return 0;
 }
 
+
+/*
+ * int internal_jobs(char **args)
+ * Si no hi ha cap argument imprimirà per pantalla l'identificador del treball, el PID, la línia de comands i l'status de tots els treballs que tenim actualment.
+ * Si afegim un argument només imprimirà el treball que li hem indicat mitjançant aquest.
+*/
 int internal_jobs(char **args){
     if (args[1]){
         int pos = atoi(args[1]);
@@ -201,11 +255,6 @@ int internal_jobs(char **args){
     }
     return 0;
 }
-/*
-jobs son procesos que dependan del terminal (que esten en segundo plano y los que yo detenga 'ctrlz')
-*/
-
-
 
 /*
 internal_fg(char **args)
