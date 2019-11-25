@@ -538,16 +538,35 @@ Implementar flags per a funcions internes.
 implementar que internal_fg pugui agafar més d'un jobID i la possibilitat de possar un string
 
 Possible solució fer que el fill sempre ignori SIGTSTP
+Canviar numeros per senyals
 */
 
 //      CONTROLADORS
 
+
+/*
+ * void reaper
+ * -----------
+ * Controlador per a la senyal SIGCHLD (senyal enviada a un procés quan un dels
+ * seus processos fills termina).
+ * 
+ * Amb waipid() podem saber quin fill és el que termina. Tenim dos casos:
+ * 
+ * El fill estava en foreground:
+ *      Reseteam la posició 0 de l'array jobs_list (que conté informació sobre 
+ *      el procés en foreground)
+ * 
+ * El fill estava en background:
+ *      Trobam la seva posició amb jobs_list_find, imprimim que un procés en
+ *      background ha terminat (amb les seves dades corresponents) i cridam a
+ *      la funció jobs_list_remove per eliminar el procés de la llista.
+ */
+
 void reaper(int signum){
     pid_t pid;
     int status;
-    signal(SIGCHLD,reaper);
+    signal(SIGCHLD,reaper); // Tornam a assignar la senyal perque en alguns sistemes després de rebrer-la per primera vegada ña restaura a l'acció per defecte
     while ((pid=waitpid((pid_t)(-1), &status, WNOHANG)) > 0 ){
-        int position;
         if (pid == jobs_list[0].pid){
             if (WIFEXITED(status)){
                 printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado con exit code %d]\n",pid,jobs_list[0].command_line,WEXITSTATUS(status));
@@ -556,7 +575,8 @@ void reaper(int signum){
             }
             jobs_list[0].pid = 0;
             memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
-        } else if (position = jobs_list_find(pid)){ // Si trobam es pid a jobs_list
+        } else{
+            int position = jobs_list_find(pid);
             printf("\n");
             if (WIFEXITED(status)){
                 printf("[reaper()→ Proceso hijo %d en background (%s) finalizado con exit code %d]\n",pid,jobs_list[position].command_line,WEXITSTATUS(status));
@@ -569,6 +589,17 @@ void reaper(int signum){
         }
     }
 }
+
+/*
+ * void ctrlc
+ * ----------
+ * Controlador per a la senyal SIGINT (senyal enviada amb CTRL+C).
+ * Com que els processos fills ignoren la senyal SIGINT el que farem nosaltres
+ * és enviar la senyal SIGTERM a través del procés pare.
+ * 
+ * Només enviarem la senyal SIGTERM si el procés està a foreground i a més no
+ * és el nostre propi minishell
+ */
 
 void ctrlc(int signum){
     signal(SIGINT, ctrlc);
@@ -590,6 +621,15 @@ void ctrlc(int signum){
     }
 }
 
+/*
+ * void ctrlz
+ * ----------
+ * Controlador per a la senyal SIGTSTP (senyal enviada amb CTRL+Z).
+ * 
+ * Només enviarem la senyal SIGTSTP si el procés està a foreground i a més no
+ * és el nostre propi minishell.
+ */
+
 void ctrlz(int signum){
     signal(SIGTSTP,ctrlz);
     printf("\n[ctrlz()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
@@ -597,8 +637,8 @@ void ctrlz(int signum){
         if (strcmp(g_argv,jobs_list[0].command_line)){
             if (n_pids >= N_JOBS -1){
                 fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
-                if(kill(jobs_list[0].pid,18) == -1) // Per alguna raó aturava el procés encara que no hi arribés a enviar SIGTSTP, aquesta passa és obligatoria
-                    perror("kill");
+                //if(kill(jobs_list[0].pid,18) == -1) // Per alguna raó aturava el procés encara que no hi arribés a enviar SIGTSTP, aquesta passa és obligatoria
+                 //   perror("kill");
             } else if(kill(jobs_list[0].pid,20) == 0){
                 printf("[ctrlz()→ Señal 20 (SIGTSTP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
                 jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
