@@ -29,6 +29,7 @@ int main(int argc, char *argv[]){
     signal(SIGTSTP,ctrlz);
     g_argv = argv[0];
     jobs_list[0].pid = 0;
+    memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
     n_pids = 0;
     while (read_line(line)){
         execute_line(line);
@@ -94,8 +95,6 @@ char *read_line(char *line){
  */
 int execute_line(char *line){
     char *args[ARGS_SIZE];
-    strcpy(jobs_list[0].command_line,line);
-    jobs_list[0].command_line[strlen(line)-1] = 0; // Eliminam el caràcter \n
     parse_args(args,line);
     if (args[0]){
         if (check_internal(args)){
@@ -127,8 +126,10 @@ int parse_args(char **args, char *line){
     token = strtok(line,delim);
     while (token){
         if (token[0] == '#'){break;}
+        strcat(jobs_list[0].command_line,token);
         args[token_counter] = token;
         token = strtok(NULL, delim);
+        if (token){strcat(jobs_list[0].command_line," ");}
         token_counter++;
     }
     args[token_counter] = NULL;
@@ -287,18 +288,19 @@ int internal_source(char **args){
  * Si no hi ha cap argument imprimirà per pantalla l'identificador del treball,
  * el PID, la línia de comands i l'status de tots els treballs que tenim.
  * 
- * Si afegim un argument imprimirà el treball que li hem indicat mitjançant 
- * aquest.
+ * Si afegim un o més arguments imprimirà els treballs que li hem indicat.
  */
 
 int internal_jobs(char **args){
     if (args[1]){
-        int pos = atoi(args[1]);
-        if (pos < 1 || pos > n_pids){
-            fprintf(stderr,"jobs %s: no existe tal trabjo\n",args[1]);
-        } else {
-            printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,
-                    jobs_list[pos].status,jobs_list[pos].command_line);
+        for (int i = 1; args[i] ; i++){
+            int pos = atoi(args[i]);
+            if (pos < 1 || pos > n_pids){
+                fprintf(stderr,"jobs %s: no existe tal trabjo\n",args[i]);
+            } else {
+                printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,
+                        jobs_list[pos].status,jobs_list[pos].command_line);
+            }
         }
     } else {
         for (int i = 1; i <= n_pids; i++){
@@ -363,22 +365,22 @@ int internal_fg(char **args){
 
 int internal_bg(char **args){
     if (args[1]){
-        int pos = atoi(args[1]);
-        if (pos < 1 || pos > n_pids){
-            fprintf(stderr,"bg %s: no existe tal trabjo\n",args[1]);
-            return 0;
-        }
-        if (jobs_list[pos].status == 'E'){
-            fprintf(stderr,"bg: el trabajo %d ja está en segundo plano\n",pos);
-            return 0;
-        }
-        jobs_list[pos].status = 'E';
-        strcat(jobs_list[pos].command_line," &");
-        if (kill(jobs_list[pos].pid,18) == 0){
-            printf("[internal_bg()→ señal 18 (SIGCONT) enviada a %d (%s)]\n",jobs_list[pos].pid,jobs_list[pos].command_line);
-            printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,jobs_list[pos].status,jobs_list[pos].command_line);
-        } else {
-            perror("kill");
+        for (int i = 1; args[i] ; i++){
+            int pos = atoi(args[i]);
+            if (pos < 1 || pos > n_pids){
+                fprintf(stderr,"bg %s: no existe tal trabjo\n",args[i]);
+            } else if (jobs_list[pos].status == 'E'){
+                fprintf(stderr,"bg: el trabajo %d ja está en segundo plano\n",pos);
+            } else {
+                jobs_list[pos].status = 'E';
+                strcat(jobs_list[pos].command_line," &");
+                if (kill(jobs_list[pos].pid,18) == 0){
+                    printf("[internal_bg()→ señal 18 (SIGCONT) enviada a %d (%s)]\n",jobs_list[pos].pid,jobs_list[pos].command_line);
+                    printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,jobs_list[pos].status,jobs_list[pos].command_line);
+                } else {
+                    perror("kill");
+                }
+            }
         }
     } else {
         fprintf(stderr, "Error de sintaxis. Uso: bg <job_id>\n");
@@ -411,20 +413,20 @@ int internal_bg(char **args){
 int external_command(char **args){
     pid_t pid;
     int bkg = is_background(args);
-    if (bkg == 0 && n_pids >= N_JOBS -1){
+    if (bkg == 0 && n_pids >= N_JOBS){
         fprintf(stderr,"Error, no se pueden añadir más procesos en segundo plano\n");
         return 1;
     }
     pid = fork();
     if (pid == 0){
         signal(SIGCHLD,SIG_DFL);
-        signal(SIGINT, SIG_IGN); // Ignoram senyal ctrl+c general
+        signal(SIGINT, SIG_IGN);
         if (bkg == 0){
             signal(SIGTSTP,SIG_IGN);
         } else{
-            signal(SIGTSTP,SIG_DFL); // ATENCIO!!!!! toca comprobar si llevant lo del controlador funciona bé!!!!
+            signal(SIGTSTP,SIG_DFL); // Arreglar más tarde!!!!!
         }
-        execvp(args[0],args);
+        execvp(args[0],args);signal(SIGTSTP,SIG_IGN);
         fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
         exit(1);
     } else if (pid > 0){
@@ -453,20 +455,16 @@ int external_command(char **args){
  */
 
 int is_background(char **args){
-    /*for (int i = 1; args[i] ; i++){
-        if (args[i][0] == '&'){
-            args[i] = NULL;
-            return 1; // True
-        }
+    int length = 1;
+    while (args[length]){
+        length++;
     }
-    return 0; // False
-    */
-   int position_to_check = parse_args(args,jobs_list[0].command_line);
-   if (strcmp(args[position_to_check],"&" == 0)){
-       return 0; // True
-   } else {
-       return 1; // False
-   }
+    if(length > 1 && strcmp(args[length -1],"&") == 0){
+        args[length -1] = NULL; // Amb length > 1 arreglam el cas on introduim només una &
+        return 0; // True
+    } else{
+        return 1; // False
+    }
 }
 
 /*
@@ -478,12 +476,12 @@ int is_background(char **args){
 
 int jobs_list_add(pid_t pid, char status, char *command_line){
     n_pids++;
-    jobs_list[0].pid = 0;
-    memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
     jobs_list[n_pids].pid = pid;
     jobs_list[n_pids].status = status;
     strcpy(jobs_list[n_pids].command_line,command_line);
     printf("[%d] %d\t%c\t%s\n",n_pids,jobs_list[n_pids].pid,jobs_list[n_pids].status,jobs_list[n_pids].command_line);
+    jobs_list[0].pid = 0;
+    memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
     return 0;
 } // Aquí no tenim condicionals perquè en casos on la llista de jobs estigui plena ens interesa saber-ho abans de cridar al comand jobs_list_add i
   // mai el cridarem si ja esteim en es límit de jobs. Així si volem fer un procés en background i ja esteim al límit ni tal sols cridarem en es fork.
@@ -499,7 +497,7 @@ int jobs_list_add(pid_t pid, char status, char *command_line){
 
 int jobs_list_find(pid_t pid){
     int position = 1;
-    while (position < N_JOBS){
+    while (position < N_JOBS +1){
         if (jobs_list[position].pid ==  pid)
             return position;
         position++;
@@ -535,10 +533,9 @@ Revisar internal_cd i provar més casos.
 Acabar README.txt
 
 Implementar flags per a funcions internes.
-implementar que internal_fg pugui agafar més d'un jobID i la possibilitat de possar un string
 
-Possible solució fer que el fill sempre ignori SIGTSTP
-Canviar numeros per senyals
+Possible solució fer que el fill sempre ignori SIGTSTP, demanar perque funciona
+Canviar numeros per senyals, pareix que estan incorrectes?
 */
 
 //      CONTROLADORS
@@ -635,11 +632,11 @@ void ctrlz(int signum){
     printf("\n[ctrlz()→ Soy el proceso con PID %d (%s), el proceso en foreground es %d (%s)]\n",getpid(),g_argv,jobs_list[0].pid,jobs_list[0].command_line);
     if (jobs_list[0].pid > 0){
         if (strcmp(g_argv,jobs_list[0].command_line)){
-            if (n_pids >= N_JOBS -1){
+            if (n_pids >= N_JOBS){
                 fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
-                //if(kill(jobs_list[0].pid,18) == -1) // Per alguna raó aturava el procés encara que no hi arribés a enviar SIGTSTP, aquesta passa és obligatoria
-                 //   perror("kill");
-            } else if(kill(jobs_list[0].pid,20) == 0){
+                if(kill(jobs_list[0].pid,18) == -1) // arreglar més tard!!!!!!!!!!!!!!!!!!!
+                    perror("kill");
+            } else if(/*kill(jobs_list[0].pid,20) == 0*/1){
                 printf("[ctrlz()→ Señal 20 (SIGTSTP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
                 jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
             } else {

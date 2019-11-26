@@ -44,4 +44,4 @@ struct info_process {
 
 static char *g_argv; // Contindrà l'argument amb el que hem inicialitzat el programa
 static int n_pids;   // Contindrà el número de treballs en segon pla que tenim al moment
-static struct info_process jobs_list[N_JOBS];
+static struct info_process jobs_list[N_JOBS + 1];
