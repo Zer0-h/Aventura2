@@ -93,14 +93,13 @@ char *read_line(char *line){
  */
 int execute_line(char *line){
     char *args[ARGS_SIZE];
-    strcpy(jobs_list[0].command_line,line);
-    jobs_list[0].command_line[strlen(line)-1] = 0; // Eliminam el caràcter \n
     parse_args(args,line);
     if (args[0]){
         if (check_internal(args)){
             external_command(args);
         }
     }
+    memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
     return 0;
 }
 
@@ -126,8 +125,10 @@ int parse_args(char **args, char *line){
     token = strtok(line,delim);
     while (token){
         if (token[0] == '#'){break;}
+        strcat(jobs_list[0].command_line,token);
         args[token_counter] = token;
         token = strtok(NULL, delim);
+        if (token){strcat(jobs_list[0].command_line," ");}
         token_counter++;
     }
     args[token_counter] = NULL;
@@ -312,7 +313,7 @@ int internal_jobs(char **args){
 /*
  * int internal_fg
  * ---------------
- * Possa el treball que li hem indicat amb <fg jobID> a foreground, si estaba
+ * Possa el treball que li hem indicat com argument a foreground, si estaba
  * detingut, el resumim.
  */
 
@@ -419,13 +420,9 @@ int external_command(char **args){
     if (pid == 0){
         signal(SIGCHLD,SIG_DFL);
         signal(SIGINT, SIG_IGN);
-        if (bkg == 0){
-            signal(SIGTSTP,SIG_IGN);
-        } else{
-            signal(SIGTSTP,SIG_DFL); // Arreglar más tarde!!!!!
-        }
+        signal(SIGTSTP,SIG_IGN);
         is_output_redirection(args);
-        execvp(args[0],args);signal(SIGTSTP,SIG_IGN);
+        execvp(args[0],args);
         fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
         exit(1);
     } else if (pid > 0){
@@ -482,7 +479,8 @@ int is_output_redirection(char **args){
         length++;
     }
 
-    // En lloc de cercar '>' per tot args ho cercarem a la penúltima posició.
+    // En lloc de cercar '>' per tot args ho cercarem a la penúltima posició,
+    // que és on hauria d'estar si s'ha escrit correctament.
 
     if(length > 2 && strcmp(args[length -2],">") == 0){
         int fd;
@@ -564,9 +562,7 @@ Acabar README.txt
 Implementar flags per a funcions internes.
 
 Possible solució fer que el fill sempre ignori SIGTSTP, demanar perque funciona
-Canviar numeros per senyals, pareix que estan incorrectes?
-
-Canviar strcpy a execute line a jobs_list[0].command_line i possar-ho dins parse_args
+Canviar numeros per senyals, pareix que estan incorrectes? COMPROBAR
 */
 
 //      CONTROLADORS
@@ -602,7 +598,7 @@ void reaper(int signum){
                 printf("[reaper()→ Proceso hijo %d en foreground (%s) finalizado por señal %d]\n",pid,jobs_list[0].command_line,WTERMSIG(status));
             }
             jobs_list[0].pid = 0;
-            memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
+            // memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
         } else{
             int position = jobs_list_find(pid);
             printf("\n");
@@ -665,10 +661,10 @@ void ctrlz(int signum){
         if (strcmp(g_argv,jobs_list[0].command_line)){
             if (n_pids >= N_JOBS){
                 fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
-                if(kill(jobs_list[0].pid,18) == -1) // arreglar més tard!!!!!!!!!!!!!!!!!!!
-                    perror("kill");
-            } else if(kill(jobs_list[0].pid,20) == 0){
-                printf("[ctrlz()→ Señal 20 (SIGTSTP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
+                //if(kill(jobs_list[0].pid,18) == -1) // arreglar més tard!!!!!!!!!!!!!!!!!!!
+                  //  perror("kill");
+            } else if(kill(jobs_list[0].pid,19) == 0){
+                printf("[ctrlz()→ Señal 19 (SIGSTOP) enviada a %d (%s) por %d (%s)]\n",jobs_list[0].pid,jobs_list[0].command_line,getpid(),g_argv);
                 jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
             } else {
                 perror("kill");

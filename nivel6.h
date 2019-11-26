@@ -1,6 +1,6 @@
 #define COMMAND_LINE_SIZE 1024   // màxim número de línies que llegirem
 #define ARGS_SIZE 64             // màxim número d'elements a l'array d'arguments
-#define N_JOBS 4                 // màxim número de treballs que tendrem en segon pla
+#define N_JOBS 4                 // màxim número de treballs en segon pla
 #define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
