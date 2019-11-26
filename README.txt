@@ -14,3 +14,4 @@ un procés a foreground funcionarà normalment, però si llançam CTRL+Z notific
 
 Copiam command_line dins parse args en lloc de copiar directament la línia que ens han entrar a execute line. Així si possam més espais de la conta,
 no és un problema per executar-ho però se queda guardat amb l'extra d'espais
+^ FIX IT

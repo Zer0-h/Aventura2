@@ -1,5 +1,4 @@
-#include "nivel5.h"
-
+#include "nivel6.h"
 
 /*
  * En aquest codi hem considerat que quan tornam 0 és success i 1 és failure.
@@ -425,6 +424,7 @@ int external_command(char **args){
         } else{
             signal(SIGTSTP,SIG_DFL); // Arreglar más tarde!!!!!
         }
+        is_output_redirection(args);
         execvp(args[0],args);signal(SIGTSTP,SIG_IGN);
         fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
         exit(1);
@@ -464,6 +464,36 @@ int is_background(char **args){
     } else{
         return 1; // False
     }
+}
+
+/*
+ * int is_output_redirection
+ * -------------------------
+ * Funció que recorr la llista d'arguments cercant '>' seguit d'un únic token
+ * que sigui el nom de l'arxiu.
+ * 
+ * Modificarem args per a que ho accepti execvp() i redireccionarem la sortida
+ * a l'arxiu que hem indicat.
+ */
+
+int is_output_redirection(char **args){
+    int length = 1;
+    while (args[length]){
+        length++;
+    }
+
+    // En lloc de cercar '>' per tot args ho cercarem a la penúltima posició.
+
+    if(length > 2 && strcmp(args[length -2],">") == 0){
+        int fd;
+        fd = open(args[length-1], O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+        if (dup2(fd,1) == -1){
+            perror("dup2");
+        }
+        close(fd);
+        args[length -2] = NULL;
+    }
+    return 0;
 }
 
 /*
@@ -535,6 +565,8 @@ Implementar flags per a funcions internes.
 
 Possible solució fer que el fill sempre ignori SIGTSTP, demanar perque funciona
 Canviar numeros per senyals, pareix que estan incorrectes?
+
+Canviar strcpy a execute line a jobs_list[0].command_line i possar-ho dins parse_args
 */
 
 //      CONTROLADORS
