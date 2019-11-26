@@ -6,12 +6,15 @@ que ens duu al directori /home/user/Aventura2/prueba dir/prueba/"/pr"ueba dir la
 
 ^^^^^ deixar guapo
 
-El comando jobs permet l'us d'un o més arguments per mostrar els que volguem, no tots com fa per defecte.
+El comando jobs permet l'us d'un o més arguments per mostrar els que especificam.
 
 Quan arribem al límit de jobs que podem tenir es shell ho comprobarà abans de llançar es fork si el procés és de background, si esteim al límit i llançam
 un procés a foreground funcionarà normalment, però si llançam CTRL+Z notificarem que esteim al límit de jobs i no l'aturarem, seguirà en foreground.
 
+En lloc de tenir un condicional per SIGTSTP ho ignoram sempre, a pare i a fill, en es controlador enviarem la senyal SIGSTOP.
+Abans creava un petit conflicte, si el procés no era background feiem l'acció per defecte, és a dir, aturar el programa. I en es controlador
+el tornavem a aturar, cosa que no te molt de sentit. Ara nosaltres som els que decidim que s'aturi en es controlador, no abans. 
 
-Copiam command_line dins parse args en lloc de copiar directament la línia que ens han entrar a execute line. Així si possam més espais de la conta,
-no és un problema per executar-ho però se queda guardat amb l'extra d'espais
-^ FIX IT
+Copiam command_line dins parse args en lloc de copiar directament la línia que ens han entrat a execute line. Així si possam més espais de la conta
+ho deixam igual que ho tenim a l'array d'strings.
+^ FIX IT, fixed it, probably
