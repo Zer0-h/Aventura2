@@ -1,4 +1,4 @@
-#include "nivel6.h"
+#include "nivel7.h"
 
 /*
  * En aquest codi hem considerat que quan tornam 0 és success i 1 és failure.
@@ -67,8 +67,20 @@ int imprimir_prompt(){
  */
 
 char *read_line(char *line){
+    imprimir_prompt(); // Modificar
+    #ifdef USE_READLINE
+    if (line_read) {
+         free (line_read);
+         line_read = (char *)NULL;
+    
+    }
+    line_read = readline ("");
+    if (line_read && *line_read)  
+        add_history (line_read);
+
+    return (line_read);
+    #else
     char * ptr;
-    imprimir_prompt();
     fflush(stdout);
     ptr = fgets (line, COMMAND_LINE_SIZE, stdin);
     if (!ptr) {
@@ -82,6 +94,7 @@ char *read_line(char *line){
        }
    }
     return ptr;
+    #endif
 }
 
 /*

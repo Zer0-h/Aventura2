@@ -1,4 +1,4 @@
-#include "nivel6.h"
+#include "my_shell.h"
 
 /*
  * En aquest codi hem considerat que quan tornam 0 és success i 1 és failure.
@@ -67,21 +67,37 @@ int imprimir_prompt(){
  */
 
 char *read_line(char *line){
+    imprimir_prompt(); // Modificar
+    #ifdef USE_READLINE
+    if (line_read){
+         free (line_read);
+         line_read = (char *)NULL;
+    }
+    line_read = readline ("");
+    if (line_read && *line_read)  
+        add_history (line_read);
+    if (!line_read){
+        fprintf(stderr,"exit\n"); // Mostrarem exit abans de sortir.
+        return NULL;
+    }
+    strcpy(line,line_read);
+    return line;
+    #else
     char * ptr;
-    imprimir_prompt();
     fflush(stdout);
     ptr = fgets (line, COMMAND_LINE_SIZE, stdin);
     if (!ptr) {
         printf("\r");
        if (feof(stdin)){
            fprintf(stderr,"exit\n"); // mostrarem exit abans de sortir.
-           exit(0);
+           ptr = NULL;
        } else {
            ptr = line;
            ptr[0] = 0;
        }
    }
     return ptr;
+    #endif
 }
 
 /*
@@ -201,7 +217,7 @@ int internal_cd(char **args){
         for (int i = 1; args[i]; i++){
             char* token; 
             char* rest = args[i];
-            while (token = strtok_r(rest,"/",&rest)){
+            while ( (token = strtok_r(rest,"/",&rest)) ){
                 char check1 = token[0];
                 char *check2 = &token[strlen(token) -1];
                 if (check1 == '\"' || check1 == '\'')
@@ -241,10 +257,9 @@ int internal_cd(char **args){
  */
 
 int internal_export(char **args){
-    int error = 1;
     char *env[2];
     env[0] = strtok(args[1],"=");
-    if (env[1] = strtok(NULL,"")){
+    if ( (env[1] = strtok(NULL,"")) ){
         if (setenv(env[0],env[1],1) == -1)
             perror("setenv");
     }
@@ -267,7 +282,7 @@ int internal_source(char **args){
     if (args[1]){
         char line[COMMAND_LINE_SIZE];
         FILE *fp;
-        if (fp = fopen(args[1],"r")){
+        if ( (fp = fopen(args[1],"r")) ){
             while (fgets(line,150, fp)){
                 fflush(fp);
                 execute_line(line);
@@ -581,7 +596,7 @@ void reaper(int signum){
             jobs_list[0].pid = 0;
         } else{
             int position = jobs_list_find(pid);
-            if (position = jobs_list_find(pid)){
+            if (position){
                 printf("\n");
                 if (WIFEXITED(status)){
                     fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] con status %d\n",pid,jobs_list[position].command_line,position,WEXITSTATUS(status));
@@ -609,14 +624,21 @@ void reaper(int signum){
 
 void ctrlc(int signum){
     signal(SIGINT, ctrlc);
-    printf("\n");
     fflush(stdout);
     if (jobs_list[0].pid > 0){
         if (strcmp(g_argv,jobs_list[0].command_line)){
+            printf("\n");
             if (kill(jobs_list[0].pid,SIGTERM) == -1){
                 perror("kill");
             }
         }
+    } else {
+        #ifdef USE_READLINE
+           printf("\n");
+           imprimir_prompt();
+       #else
+           printf("\n");
+       #endif
     }
 }
 
@@ -634,9 +656,9 @@ void ctrlc(int signum){
 void ctrlz(int signum){
     signal(SIGTSTP,ctrlz);
     fflush(stdout);
-    printf("\n");
-    if (jobs_list[0].pid > 0){
+    if (jobs_list[0].pid > 0){  
         if (strcmp(g_argv,jobs_list[0].command_line)){
+            printf("\n");
             if (n_pids >= N_JOBS){
                 fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
             } else if(kill(jobs_list[0].pid,SIGSTOP) == 0){
@@ -645,5 +667,12 @@ void ctrlz(int signum){
                 perror("kill");
             }
         }
+    } else {
+        #ifdef USE_READLINE
+           printf("\n");
+           imprimir_prompt();
+       #else
+           printf("\n");
+       #endif
     }
 }
