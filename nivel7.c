@@ -1,4 +1,6 @@
-#include "nivel7.h"
+// Autor: Antonio Torres Escribano
+
+#include "my_shell.h"
 
 /*
  * En aquest codi hem considerat que quan tornam 0 és success i 1 és failure.
@@ -10,91 +12,110 @@
  * Controlarem les senyals SIGCHLD, SIGINT i SIGTSTP amb les seves funcions
  * corresponents. Aquestes senyals venen donades per quan un fill acaba, quan
  * polsam CTRL+C i quan polsam CTRL+Z respectivament.
- * 
+ *
  * Inicialitzam les variables globals g_argv, n_pids i l'estructura jobs_list.
  * g_argv contendrà el nom del programa que inicialitza es shell, n_pids el
  * número total de treballs en background i l'estructura jobs_list contendrà
  * informació de cada treball (pid, estatus i la seva línia de comando),
  * reservarem la posició [0] per guardar dades del procés en foreground.
- * 
+ *
  * Entram en un bucle del que només podrem sortir amb el comando exit o CTRL+D
  * quan ens ensenya es prompt.
  */
 
-int main(int argc, char *argv[]){
-    char line[COMMAND_LINE_SIZE];
-    signal(SIGCHLD, reaper);
-    signal(SIGINT, ctrlc);
-    signal(SIGTSTP,ctrlz);
-    g_argv = argv[0];
-    jobs_list[0].pid = 0;
-    n_pids = 0;
-    while (read_line(line)){
-        execute_line(line);
-    }
-    return 0;
+int main(int argc, char *argv[]) {
+  char line[COMMAND_LINE_SIZE];
+  signal(SIGCHLD, reaper);
+  signal(SIGINT, ctrlc);
+  signal(SIGTSTP, ctrlz);
+  g_argv = argv[0];
+  jobs_list[0].pid = 0;
+  n_pids = 0;
+  while (read_line(line)) {
+    execute_line(line);
+  }
+  return 0;
 }
 
 /*
- * int imprimir_prompt
+ * char * prompt
  * -------------------
  * Amb la funció getenv("USER") i getcwd podem conseguir l'usuari i el directori
- * al que esteim, amb això podem contruir i imprimir el nostre prompt.
+ * al que esteim, amb això podem contruir el nostre prompt amb sprintf().
+ *
+ * Tornam el punter a la cadena de caràcters de prompt.
  */
 
-int imprimir_prompt(){
-    char *user = getenv("USER"), *home = getenv("HOME"), pwd[COMMAND_LINE_SIZE];
-    int len_home = strlen(home);
-    if (*getcwd(pwd,COMMAND_LINE_SIZE) == -1)
-        perror("getcwd");
-    if (strncmp(pwd,home,len_home) == 0){
-        printf("\033[1;31m%s\033[0m:\033[1;32m~%s\033[0m$ ",user,pwd+len_home);
-    } else {
-        printf("\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ",user,pwd);
-    }
-    return 0;
+char *prompt() {
+  char *user = getenv("USER"), *home = getenv("HOME"),
+       pwd[COMMAND_LINE_SIZE - 27];
+  char *prompt = malloc(COMMAND_LINE_SIZE);
+  int len_home = strlen(home);
+  if (*getcwd(pwd, COMMAND_LINE_SIZE) == -1) {
+    perror("getcwd");
+  } else if (strncmp(pwd, home, len_home) == 0) {
+    sprintf(prompt, "\r\033[1;31m%s\033[0m:\033[1;32m~%s\033[0m$ ", user,
+            pwd + len_home);
+  } else {
+    sprintf(prompt, "\r\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ", user, pwd);
+  }
+  return prompt;
 }
 
 /*
  * char *read_line
- * --------------- 
- * Crida a imprimir_prompt i llegeix una línia de la consola amb fgets(), si 
- * polsam CTRL+D al principi d'una línia significa el final de la entrada stdin,
- * per tant hem de controlar que si el resultat de fgets() és NULL i s'ha
- * produit un EOF sortirem del shell amb exit.
- * 
+ * ---------------
+ * Si utilitzam readline emplearem la funció readline() per llegir una línea de
+ * teclat, dins readline() invocarem a la funció prompt() per mostrarla en
+ * pantalla mentres esperam l'input de l'usuari. Afegirem la línea que s'ha
+ * introduït a l'historial que ens proporciona la llibreria Readline.
+ *
+ * Si no utilitzam readline imprimim el prompt i llegim una línia de la consola
+ * amb fgets().
+ *
+ * En els dos casos si polsam CTRL+D al principi d'una línia significa el final
+ * de la entrada stdin, per tant hem de controlar que si el resultat de fgets()
+ * és NULL i s'ha produit un EOF sortirem del shell amb exit. Si utilitzam la
+ * llibreria Readline si es produeix un EOF el resultat que obtenim es NULL, i
+ * feim el mateix que abans.
+ *
  * Torna el punter a la línia que hem llegit
  */
 
-char *read_line(char *line){
-    imprimir_prompt(); // Modificar
-    #ifdef USE_READLINE
-    if (line_read) {
-         free (line_read);
-         line_read = (char *)NULL;
-    
+char *read_line(char *line) {
+#ifdef USE_READLINE
+  if (line_read) {
+    free(line_read);
+    line_read = (char *)NULL;
+  }
+  line_read = readline(prompt());
+  if (line_read && *line_read) {
+    add_history(line_read);
+  }
+  if (!line_read) {
+    fprintf(stderr, "exit\n"); // Mostrarem exit abans de sortir.
+    return NULL;               // Amb NULL sortirem del bucle read_line()
+                               // i sortirem del shell
+  }
+  strcpy(line, line_read);
+  return line;
+#else
+  char *ptr;
+  printf("%s", prompt());
+  fflush(stdout);
+  ptr = fgets(line, COMMAND_LINE_SIZE, stdin);
+  if (!ptr) {
+    printf("\r");
+    if (feof(stdin)) {
+      fprintf(stderr, "exit\n");
+      return NULL;
+    } else {
+      ptr = line;
+      ptr[0] = 0;
     }
-    line_read = readline ("");
-    if (line_read && *line_read)  
-        add_history (line_read);
-
-    return (line_read);
-    #else
-    char * ptr;
-    fflush(stdout);
-    ptr = fgets (line, COMMAND_LINE_SIZE, stdin);
-    if (!ptr) {
-        printf("\r");
-       if (feof(stdin)){
-           fprintf(stderr,"exit\n"); // mostrarem exit abans de sortir.
-           exit(0);
-       } else {
-           ptr = line;
-           ptr[0] = 0;
-       }
-   }
-    return ptr;
-    #endif
+  }
+  return ptr;
+#endif
 }
 
 /*
@@ -102,52 +123,56 @@ char *read_line(char *line){
  * ----------------
  * Cridarà a parse args per obtenir la línia que l'usuari ha introduit
  * fragmentada en tokens.
- * Passam els tokens a la función boolena check_internal() perquè ens determini 
+ * Passam els tokens a la función boolena check_internal() perquè ens determini
  * si és un comando intern o extern i l'executarà de forma adecuada.
  */
 
-int execute_line(char *line){
-    char *args[ARGS_SIZE];
-    parse_args(args,line);
-    if (args[0]){
-        if (check_internal(args)){
-            external_command(args);
-        }
+int execute_line(char *line) {
+  char *args[ARGS_SIZE];
+  parse_args(args, line);
+  if (args[0]) {
+    if (check_internal(args)) {
+      external_command(args);
     }
-    memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
-    return 0;
+  }
+  memset(jobs_list[0].command_line, 0, sizeof(jobs_list[0].command_line));
+  return 0;
 }
 
 /*
  * int parse_args
  * --------------
- * Trosseja la línia obtinguda mitjançant la funció strtok(). Ignorarà els 
- * comentaris (els que comencen per #) i afegirà com a darrer argument a 
- * l'string de caràcters NULL. Així en altres funcions podrem saber quan acaba 
+ * Trosseja la línia obtinguda mitjançant la funció strtok(). Ignorarà els
+ * comentaris (els que comencen per #) i afegirà com a darrer argument a
+ * l'string de caràcters NULL. Així en altres funcions podrem saber quan acaba
  * es bucle de llegir tokens.
- * 
+ *
  * Exemples:
  *      pwd              -> ["pwd",NULL]
  *      pwd #comentari   -> ["pwd",NULL]
  *      pwd no#comentari -> ["pwd","no#comentari", NULL]
- * 
+ *
  * Torna el número de tokens sense contar es darrer (NULL)
- */ 
+ */
 
-int parse_args(char **args, char *line){
-    int token_counter = 0;
-    char *token, delim[5] = " \t\r\n";
-    token = strtok(line,delim);
-    while (token){
-        if (token[0] == '#'){break;}
-        strcat(jobs_list[0].command_line,token);
-        args[token_counter] = token;
-        token = strtok(NULL, delim);
-        if (token){strcat(jobs_list[0].command_line," ");}
-        token_counter++;
+int parse_args(char **args, char *line) {
+  int token_counter = 0;
+  char *token, delim[5] = " \t\r\n";
+  token = strtok(line, delim);
+  while (token) {
+    if (token[0] == '#') {
+      break;
     }
-    args[token_counter] = NULL;
-    return token_counter;
+    strcat(jobs_list[0].command_line, token);
+    args[token_counter] = token;
+    token = strtok(NULL, delim);
+    if (token) {
+      strcat(jobs_list[0].command_line, " ");
+    }
+    token_counter++;
+  }
+  args[token_counter] = NULL;
+  return token_counter;
 }
 
 /*
@@ -155,92 +180,98 @@ int parse_args(char **args, char *line){
  * ------------------
  * És una funció booleana que troba si args[0] és un comando intern amb strcmp()
  * si ho és l'executarà.
- * 
+ *
  * Tornarà 0 si és un comando intern i 1 en cas contrari.
  */
 
-int check_internal(char **args){
-    if (strcmp(args[0],"cd") == 0){
-        internal_cd(args);
-    } else if (strcmp(args[0],"export") == 0){
-        internal_export(args);
-    } else if (strcmp(args[0],"source") == 0){
-        internal_source(args);
-    } else if (strcmp(args[0],"jobs") == 0){
-        internal_jobs(args);
-    } else if (strcmp(args[0],"fg") == 0){
-        internal_fg(args);
-    } else if (strcmp(args[0],"bg") == 0){
-        internal_bg(args);
-    } else if (strcmp(args[0],"exit") == 0){
-        exit(0);
-    } else {
-        return 1;
-    }
-    return 0;
+int check_internal(char **args) {
+  if (strcmp(args[0], "cd") == 0) {
+    internal_cd(args);
+  } else if (strcmp(args[0], "export") == 0) {
+    internal_export(args);
+  } else if (strcmp(args[0], "source") == 0) {
+    internal_source(args);
+  } else if (strcmp(args[0], "jobs") == 0) {
+    internal_jobs(args);
+  } else if (strcmp(args[0], "fg") == 0) {
+    internal_fg(args);
+  } else if (strcmp(args[0], "bg") == 0) {
+    internal_bg(args);
+  } else if (strcmp(args[0], "exit") == 0) {
+    exit(0);
+  } else {
+    return 1;
+  }
+  return 0;
 }
-                                //INTERNAL COMMANDS
+
+// INTERNAL COMMANDS
 
 /*
  * int internal_cd
  * ---------------
  * Utilitza la cridada al sistema chdir() per canviar de directori.
- * 
+ *
  * Si l'argument té \, " o ' haurem de tractar els arguments que ens han passat.
- * 
- * El caràcter \ s'eliminarà i deixarem el caràcter que vengui després d'ell 
+ *
+ * El caràcter \ s'eliminarà i deixarem el caràcter que vengui després d'ell
  * (encara que sigui un altre \). A més si el possam al final d'una parauala
  * indicam que volem un espai.
- * 
+ *
  * Tant " com ' indicaran el principi i el final d'un directori que contengui un
  * nombre ams espais.
- * 
+ *
  * Si cd no té arguments canviarem al directori HOME.
- * 
+ *
  * Exemples per accedir a un directori anomenat "sistemes operatius":
  *      cd sistemes\ operatius
  *      cd 'sistemes operatius'
  *      cd "sistemes operatius"
  */
 
-int internal_cd(char **args){
-    char arg[COMMAND_LINE_SIZE];
-    memset(arg,0,sizeof(arg));
-    if (args[1] == NULL){
-        strcpy(arg,getenv("HOME"));
-    }else if(strpbrk(args[1],"\'\"\\")){
-        if (args[1][0] == '/')
-            arg[0] = '/';
-        for (int i = 1; args[i]; i++){
-            char* token; 
-            char* rest = args[i];
-            while (token = strtok_r(rest,"/",&rest)){
-                char check1 = token[0];
-                char *check2 = &token[strlen(token) -1];
-                if (check1 == '\"' || check1 == '\'')
-                    token++;
-                if(*check2 == '\"' || *check2 == '\'' ){
-                    if (*(check2 -1) == '\\')
-                        *(check2-1) = *check2;
-                    *check2 = 0;
-                }
-                for (token=strtok(token,"\\"); token; token =strtok(NULL,"\\")){
-                    if (*(token -1) == '\\') /* Per solucionar el cas si introdueixes \\ */
-                        token--;
-                    strcat(arg,token);
-                }
-                strcat(arg,"/");
-            }
-            if (args[i+1])
-                arg[strlen(arg) - 1] = ' ';
+int internal_cd(char **args) {
+  char arg[COMMAND_LINE_SIZE];
+  memset(arg, 0, sizeof(arg));
+  if (args[1] == NULL) {
+    strcpy(arg, getenv("HOME"));
+  } else if (strpbrk(args[1], "\'\"\\")) {
+    if (args[1][0] == '/') {
+      arg[0] = '/';
+    }
+    for (int i = 1; args[i]; i++) {
+      char *token;
+      char *rest = args[i];
+      while ((token = strtok_r(rest, "/", &rest))) {
+        char check1 = token[0];
+        char *check2 = &token[strlen(token) - 1];
+        if (check1 == '\"' || check1 == '\'') {
+          token++;
         }
-     } else{
-        strcpy(arg,args[1]);
+        if (*check2 == '\"' || *check2 == '\'') {
+          if (*(check2 - 1) == '\\') {
+            *(check2 - 1) = *check2;
+          }
+          *check2 = 0;
+        }
+        for (token = strtok(token, "\\"); token; token = strtok(NULL, "\\")) {
+          if (*(token - 1) == '\\') {
+            token--; /* Per solucionar el cas si introdueixes \\ */
+          }
+          strcat(arg, token);
+        }
+        strcat(arg, "/");
+      }
+      if (args[i + 1]) {
+        arg[strlen(arg) - 1] = ' ';
+      }
     }
-    if (chdir(arg) == -1){
-        perror("chdir");
-    }
-    return 0;
+  } else {
+    strcpy(arg, args[1]);
+  }
+  if (chdir(arg) == -1) {
+    perror("chdir");
+  }
+  return 0;
 }
 
 /*
@@ -248,50 +279,51 @@ int internal_cd(char **args){
  * ---------------
  * Descompossa en tokens l'argument NOM=VALOR. Si la sintaxis és incorrecta li
  * notificarem a l'usuari.
- * 
- * Mitjançant la funció setenv() assignarem un valor (VALOR) a una variable 
+ *
+ * Mitjançant la funció setenv() assignarem un valor (VALOR) a una variable
  * d'entorn (NOM).
  */
 
-int internal_export(char **args){
-    int error = 1;
-    char *env[2];
-    env[0] = strtok(args[1],"=");
-    if (env[1] = strtok(NULL,"")){
-        if (setenv(env[0],env[1],1) == -1)
-            perror("setenv");
+int internal_export(char **args) {
+  char *env[2];
+  env[0] = strtok(args[1], "=");
+  if ((env[1] = strtok(NULL, ""))) {
+    if (setenv(env[0], env[1], 1) == -1) {
+      perror("setenv");
     }
-    else
-        fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
-    return 0;
+  } else {
+    fprintf(stderr, "Error de sintaxis. Uso: export Nombre=Valor\n");
+  }
+  return 0;
 }
 
 /*
  * internal_source
- * --------------- 
+ * ---------------
  * Aquesta funció obrirà un arxiu amb fopen(), llegirà línia a línea l'arxiu
  * mitjançant fgets() i la passarem a la funció execute_line(). Al acabar de
  * llegir l'arxiu el tancam amb fclose().
- * 
+ *
  * Si la sintaxis és incorrecta li notificarem a l'usuari.
  */
 
-int internal_source(char **args){
-    if (args[1]){
-        char line[COMMAND_LINE_SIZE];
-        FILE *fp;
-        if (fp = fopen(args[1],"r")){
-            while (fgets(line,150, fp)){
-                fflush(fp);
-                execute_line(line);
-            }
-        fclose(fp);
-        } else
-            fprintf(stderr,"Source: No se ha encontrado el archivo '%s'\n",
-                    args[1]);
-    } else
-        fprintf(stderr,"Error de sintaxis. Uso: source <nombre_fichero>\n");
-    return 0;
+int internal_source(char **args) {
+  if (args[1]) {
+    char line[COMMAND_LINE_SIZE];
+    FILE *fp;
+    if ((fp = fopen(args[1], "r"))) {
+      while (fgets(line, 150, fp)) {
+        fflush(fp);
+        execute_line(line);
+      }
+      fclose(fp);
+    } else {
+      fprintf(stderr, "Source: No se ha encontrado el archivo '%s'\n", args[1]);
+    }
+  } else {
+    fprintf(stderr, "Error de sintaxis. Uso: source <nombre_fichero>\n");
+  }
+  return 0;
 }
 
 /*
@@ -299,28 +331,28 @@ int internal_source(char **args){
  * -------------
  * Si no hi ha cap argument imprimirà per pantalla l'identificador del treball,
  * el PID, la línia de comands i l'status de tots els treballs que tenim.
- * 
+ *
  * Si afegim un o més arguments imprimirà els treballs que li hem indicat.
  */
 
-int internal_jobs(char **args){
-    if (args[1]){
-        for (int i = 1; args[i] ; i++){
-            int pos = atoi(args[i]);
-            if (pos < 1 || pos > n_pids){
-                fprintf(stderr,"jobs %s: no existe tal trabjo\n",args[i]);
-            } else {
-                printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,
-                        jobs_list[pos].status,jobs_list[pos].command_line);
-            }
-        }
-    } else {
-        for (int i = 1; i <= n_pids; i++){
-            printf("[%d] %d\t%c\t%s\n",i,jobs_list[i].pid,jobs_list[i].status,
-                    jobs_list[i].command_line);
-        }
+int internal_jobs(char **args) {
+  if (args[1]) {
+    for (int i = 1; args[i]; i++) {
+      int pos = atoi(args[i]);
+      if (pos < 1 || pos > n_pids) {
+        fprintf(stderr, "jobs %s: no existe tal trabjo\n", args[i]);
+      } else {
+        printf("[%d] %d\t%c\t%s\n", pos, jobs_list[pos].pid,
+               jobs_list[pos].status, jobs_list[pos].command_line);
+      }
     }
-    return 0;
+  } else {
+    for (int i = 1; i <= n_pids; i++) {
+      printf("[%d] %d\t%c\t%s\n", i, jobs_list[i].pid, jobs_list[i].status,
+             jobs_list[i].command_line);
+    }
+  }
+  return 0;
 }
 
 /*
@@ -328,68 +360,70 @@ int internal_jobs(char **args){
  * ---------------
  * Possa el treball que li hem indicat com argument a foreground, si estaba
  * detingut, el resumim.
- * 
+ *
  * Esperam a que el procés acabi o a rebre una interrupció.
  */
 
-int internal_fg(char **args){
-    if (args[1]){
-        int pos = atoi(args[1]);
-        if (pos < 1 || pos > n_pids){
-            fprintf(stderr,"fg %s: no existe tal trabjo\n",args[1]);
-            return 0;
-        }
-        if (jobs_list[pos].status == 'D'){
-            jobs_list[pos].status = 'E';
-            if (kill(jobs_list[pos].pid,SIGCONT) == -1) {
-                perror("kill");
-            }
-        }
-        if (jobs_list[pos].command_line[strlen(jobs_list[pos].command_line) -1] == '&'){
-            jobs_list[pos].command_line[strlen(jobs_list[pos].command_line) -2] = 0;
-        }
-        strcpy(jobs_list[0].command_line,jobs_list[pos].command_line);
-        jobs_list[0].pid = jobs_list[pos].pid;
-        puts(jobs_list[pos].command_line);
-        jobs_list_remove(pos);
-        while (jobs_list[0].pid)
-            pause();
-    } else{
-        fprintf(stderr, "Error de sintaxis. Uso: fg <job_id>\n");
+int internal_fg(char **args) {
+  if (args[1]) {
+    int pos = atoi(args[1]);
+    if (pos < 1 || pos > n_pids) {
+      fprintf(stderr, "fg %s: no existe tal trabjo\n", args[1]);
+      return 0;
     }
-    return 0;
+    if (jobs_list[pos].status == 'D') {
+      jobs_list[pos].status = 'E';
+      if (kill(jobs_list[pos].pid, SIGCONT) == -1) {
+        perror("kill");
+      }
+    }
+    if (jobs_list[pos].command_line[strlen(jobs_list[pos].command_line) - 1] ==
+        '&') {
+      jobs_list[pos].command_line[strlen(jobs_list[pos].command_line) - 2] = 0;
+    }
+    strcpy(jobs_list[0].command_line, jobs_list[pos].command_line);
+    jobs_list[0].pid = jobs_list[pos].pid;
+    puts(jobs_list[pos].command_line);
+    jobs_list_remove(pos);
+    while (jobs_list[0].pid)
+      pause();
+  } else {
+    fprintf(stderr, "Error de sintaxis. Uso: fg <job_id>\n");
+  }
+  return 0;
 }
 /*
  * int internal_bg
  * ---------------
  * Si el treball que li hem indicat està detingut el resumim i el deixam a
  * background.
- * 
+ *
  * Podem afegir múltiples arguments per resumir més d'un procés a la vegada.
  */
 
-int internal_bg(char **args){
-    if (args[1]){
-        for (int i = 1; args[i] ; i++){
-            int pos = atoi(args[i]);
-            if (pos < 1 || pos > n_pids){
-                fprintf(stderr,"bg %s: no existe tal trabjo\n",args[i]);
-            } else if (jobs_list[pos].status == 'E'){
-                fprintf(stderr,"bg: el trabajo %d ja está en segundo plano\n",pos);
-            } else {
-                jobs_list[pos].status = 'E';
-                strcat(jobs_list[pos].command_line," &");
-                if (kill(jobs_list[pos].pid,SIGCONT) == 0){
-                    printf("[%d] %d\t%c\t%s\n",pos,jobs_list[pos].pid,jobs_list[pos].status,jobs_list[pos].command_line);
-                } else {
-                    perror("kill");
-                }
-            }
+int internal_bg(char **args) {
+  if (args[1]) {
+    for (int i = 1; args[i]; i++) {
+      int pos = atoi(args[i]);
+      if (pos < 1 || pos > n_pids) {
+        fprintf(stderr, "bg %s: no existe tal trabjo\n", args[i]);
+      } else if (jobs_list[pos].status == 'E') {
+        fprintf(stderr, "bg: el trabajo %d ja está en segundo plano\n", pos);
+      } else {
+        jobs_list[pos].status = 'E';
+        strcat(jobs_list[pos].command_line, " &");
+        if (kill(jobs_list[pos].pid, SIGCONT) == 0) {
+          printf("[%d] %d\t%c\t%s\n", pos, jobs_list[pos].pid,
+                 jobs_list[pos].status, jobs_list[pos].command_line);
+        } else {
+          perror("kill");
         }
-    } else {
-        fprintf(stderr, "Error de sintaxis. Uso: bg <job_id>\n");
+      }
     }
-    return 0;
+  } else {
+    fprintf(stderr, "Error de sintaxis. Uso: bg <job_id>\n");
+  }
+  return 0;
 }
 
 /*
@@ -397,75 +431,77 @@ int internal_bg(char **args){
  * --------------------
  * Comprobarà si el nostre comando és background i farà el control d'errors
  * corresponent. Cridarem a fork per crear un fill.
- * 
+ *
  * El procés fill:
  *      Ignorarà la interrupció CTRL+C i CTRL+Z i executarà l'acció per defecte
  *      per a la senyal SIGCHLD. El pare sirà l'encarregat de tractar totes
  *      aquestes senyals.
- * 
+ *
  *      Cridarà a la funció is_output_redirection per saber si hem de redirigir
  *      el resultat del comando a un fitxer i ho farà si es així.
- * 
+ *
  *      Cridarà a la funció execvp() per executar el comando extern solicitat.
- * 
+ *
  * El procés pare:
  *      Si el comando és background l'afegirem a la llista de treballs amb la
  *      funció jobs_list_add().
- * 
+ *
  *      Si no, donarà els valors del procés en foreground i executarà un pause()
  *      mentres hi hagui un procés executant-se en foreground.
  */
 
-int external_command(char **args){
-    pid_t pid;
-    int bkg = is_background(args);
-    if (bkg == 0 && n_pids >= N_JOBS){
-        fprintf(stderr,"Error, no se pueden añadir más procesos en segundo plano\n");
-        return 1;
-    }
-    pid = fork();
-    if (pid == 0){
-        signal(SIGCHLD,SIG_DFL);
-        signal(SIGINT, SIG_IGN);
-        signal(SIGTSTP,SIG_IGN);
-        is_output_redirection(args);
-        execvp(args[0],args);
-        fprintf(stderr,"%s: no se ha encontrado el comando\n",args[0]);
-        exit(1);
-    } else if (pid > 0){
-        if (bkg == 0){
-            jobs_list_add(pid,'E',jobs_list[0].command_line);
-        } else{
-            jobs_list[0].pid = pid;
-            while (jobs_list[0].pid)
-                pause();
-        }
+int external_command(char **args) {
+  pid_t pid;
+  int bkg = is_background(args);
+  if (bkg == 0 && n_pids >= N_JOBS) {
+    fprintf(stderr,
+            "Error, no se pueden añadir más procesos en segundo plano\n");
+    return 1;
+  }
+  pid = fork();
+  if (pid == 0) {
+    signal(SIGCHLD, SIG_DFL);
+    signal(SIGINT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+    is_output_redirection(args);
+    execvp(args[0], args);
+    fprintf(stderr, "%s: no se ha encontrado el comando\n", args[0]);
+    exit(1);
+  } else if (pid > 0) {
+    if (bkg == 0) {
+      jobs_list_add(pid, 'E', jobs_list[0].command_line);
     } else {
-        perror("fork");
-        exit(1);
+      jobs_list[0].pid = pid;
+      while (jobs_list[0].pid)
+        pause();
     }
-    return 0;
+  } else {
+    perror("fork");
+    exit(1);
+  }
+  return 0;
 }
 
 /*
  * int is_background
  * -----------------
  * Analitza a la línea de comandos si hi ha un & al final.
- * 
+ *
  * Torna 0 si és background i 1 si no ho és.
  */
 
-int is_background(char **args){
-    int length = 1;
-    while (args[length]){
-        length++;
-    }
-    if(length > 1 && strcmp(args[length -1],"&") == 0){
-        args[length -1] = NULL; // Amb length > 1 arreglam el cas on introduim només una &
-        return 0; // True
-    } else{
-        return 1; // False
-    }
+int is_background(char **args) {
+  int length = 1;
+  while (args[length]) {
+    length++;
+  }
+  if (length > 1 && strcmp(args[length - 1], "&") == 0) {
+    args[length - 1] =
+        NULL; // Amb length > 1 arreglam el cas on introduim només una &
+    return 0; // True
+  } else {
+    return 1; // False
+  }
 }
 
 /*
@@ -473,30 +509,36 @@ int is_background(char **args){
  * -------------------------
  * Funció que recorr la llista d'arguments cercant '>' seguit d'un únic token
  * que sigui el nom de l'arxiu.
- * 
+ *
  * Modificarem args per a que ho accepti execvp() i redireccionarem la sortida
  * a l'arxiu que hem indicat.
  */
 
-int is_output_redirection(char **args){
-    int length = 1;
-    while (args[length]){
-        length++;
-    }
+int is_output_redirection(char **args) {
+  int length = 1;
+  while (args[length]) {
+    length++;
+  }
 
-    // En lloc de cercar '>' per tot args ho cercarem a la penúltima posició,
-    // que és on hauria d'estar si s'ha escrit correctament.
+  // En lloc de cercar '>' per tot args ho cercarem a la penúltima posició,
+  // que és on hauria d'estar si s'ha escrit correctament.
 
-    if(length > 2 && strcmp(args[length -2],">") == 0){
-        int fd;
-        fd = open(args[length-1], O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
-        if (dup2(fd,1) == -1){
-            perror("dup2");
-        }
-        close(fd);
-        args[length -2] = NULL;
+  if (length > 2 && strcmp(args[length - 2], ">") == 0) {
+    int fd;
+    fd =
+        open(args[length - 1], O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (fd == -1) {
+      perror("open");
+    } else if (dup2(fd, 1) == -1) {
+      perror("dup2");
+    } else { // Si dup i open ha funcionat
+      args[length - 2] = NULL;
+      if (close(fd) == -1) {
+        perror("close");
+      }
     }
-    return 0;
+  }
+  return 0;
 }
 
 /*
@@ -504,37 +546,39 @@ int is_output_redirection(char **args){
  * -----------------
  * Afegim un nou element a l'array de jobs_list indicada per la variable global
  * n_pids.
- * 
+ *
  * Augmentam el valor de n_pids per 1.
  */
 
-int jobs_list_add(pid_t pid, char status, char *command_line){
-    n_pids++;
-    jobs_list[n_pids].pid = pid;
-    jobs_list[n_pids].status = status;
-    strcpy(jobs_list[n_pids].command_line,command_line);
-    printf("[%d] %d\t%c\t%s\n",n_pids,jobs_list[n_pids].pid,jobs_list[n_pids].status,jobs_list[n_pids].command_line);
-    jobs_list[0].pid = 0;
-    memset(jobs_list[0].command_line,0,sizeof(jobs_list[0].command_line));
-    return 0;
+int jobs_list_add(pid_t pid, char status, char *command_line) {
+  n_pids++;
+  jobs_list[n_pids].pid = pid;
+  jobs_list[n_pids].status = status;
+  strcpy(jobs_list[n_pids].command_line, command_line);
+  printf("[%d] %d\t%c\t%s\n", n_pids, jobs_list[n_pids].pid,
+         jobs_list[n_pids].status, jobs_list[n_pids].command_line);
+  jobs_list[0].pid = 0;
+  memset(jobs_list[0].command_line, 0, sizeof(jobs_list[0].command_line));
+  return 0;
 }
 
 /*
  * int jobs_list_find
  * ------------------
  * Cerca a l'array del treball el PID que agafa com argument.
- * 
+ *
  * Torna la posició en que es troba aquest PID, si no l'ha trobat tornarà 0.
  */
 
-int jobs_list_find(pid_t pid){
-    int position = 1;
-    while (position < N_JOBS +1){
-        if (jobs_list[position].pid ==  pid)
-            return position;
-        position++;
+int jobs_list_find(pid_t pid) {
+  int position = 1;
+  while (position < N_JOBS + 1) {
+    if (jobs_list[position].pid == pid) {
+      return position;
     }
-    return 0;
+    position++;
+  }
+  return 0;
 }
 
 /*
@@ -542,71 +586,70 @@ int jobs_list_find(pid_t pid){
  * --------------------
  * Agafa com argument la posició de l'array del treball que hem d'eliminar i mou
  * el registre del darrer procés de la llista a la posició que hem eliminat.
- * 
+ *
  * Reduim el valor de n_pids per 1.
  */
 
-int jobs_list_remove(int pos){
-    jobs_list[pos] = jobs_list[n_pids];
-    jobs_list[n_pids].pid = 0;
-    n_pids--;
-    return 0;
+int jobs_list_remove(int pos) {
+  jobs_list[pos] = jobs_list[n_pids];
+  jobs_list[n_pids].pid = 0;
+  n_pids--;
+  return 0;
 }
 
-/*******************************
-        TO DO LIST
-********************************
-
-Recolocar funcions perquè el seu ordre tengui sentit
-Revisar si totes les cridades al sistema tenen un control d'errors (al acabar tot)
-    Aquestes son open(), close(), chdir(), getcwd(), dup(), dup2(), execvp(), exit(), fork(), getpid(), kill(), pause(), 
-    signal(), wait(), waitpid(). Las llamadas al sistema están recopiladas en la sección 2 de Man
-Revisar internal_cd i provar més casos.
-Acabar README.txt
-*/
-
-                                //CONTROLADORS
+// CONTROLADORS
 
 /*
  * void reaper
  * -----------
  * Controlador per a la senyal SIGCHLD (senyal enviada a un procés quan un dels
  * seus processos fills termina).
- * 
+ *
  * Amb waipid() podem saber quin fill és el que termina. Tenim dos casos:
- * 
+ *
  * El fill estava en foreground:
- *      Reseteam la posició 0 de l'array jobs_list (que conté informació sobre 
+ *      Reseteam la posició 0 de l'array jobs_list (que conté informació sobre
  *      el procés en foreground)
- * 
+ *
  * El fill estava en background:
  *      Trobam la seva posició amb jobs_list_find, imprimim que un procés en
  *      background ha terminat (amb les seves dades corresponents) i cridam a
  *      la funció jobs_list_remove per eliminar el procés de la llista.
  */
 
-void reaper(int signum){
-    pid_t pid;
-    int status;
-    signal(SIGCHLD,reaper); // Tornam a assignar la senyal perque en alguns sistemes després de rebrer-la per primera vegada ña restaura a l'acció per defecte
-    while ((pid=waitpid((pid_t)(-1), &status, WNOHANG)) > 0 ){
-        if (pid == jobs_list[0].pid){
-            jobs_list[0].pid = 0;
-        } else{
-            int position = jobs_list_find(pid);
-            if (position = jobs_list_find(pid)){
-                printf("\n");
-                if (WIFEXITED(status)){
-                    fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] con status %d\n",pid,jobs_list[position].command_line,position,WEXITSTATUS(status));
-                } else if (WIFSIGNALED(status)) {
-                    fprintf(stderr,"Terminado PID %d (%s) en jobs_list[%d] por señal %d\n",pid,jobs_list[position].command_line,position,WTERMSIG(status));
-                }
-                jobs_list_remove(position);
-            } else {
-                fprintf(stderr,"No se ha podido encontrar el trabajo con PID %d",pid);
-            }
+void reaper(int signum) {
+  pid_t pid;
+  int status;
+  signal(SIGCHLD, reaper); // Tornam a assignar la senyal perque en alguns
+                           // sistemes després de rebrer-la per primera vegada
+                           // ña restaura a l'acció per defecte
+  while ((pid = waitpid((pid_t)(-1), &status, WNOHANG)) > 0) {
+    if (pid == jobs_list[0].pid) {
+      jobs_list[0].pid = 0;
+    } else {
+      int position = jobs_list_find(pid);
+      if (position) {
+        if (WIFEXITED(status)) {
+          fprintf(stderr,
+                  "\nTerminado PID %d (%s) en jobs_list[%d] con status %d\n",
+                  pid, jobs_list[position].command_line, position,
+                  WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+          fprintf(stderr,
+                  "Terminado PID %d (%s) en jobs_list[%d] por señal %d\n", pid,
+                  jobs_list[position].command_line, position, WTERMSIG(status));
         }
+        jobs_list_remove(position);
+#ifdef USE_READLINE
+        printf("%s", prompt());
+        fflush(stdout);
+#endif
+
+      } else {
+        fprintf(stderr, "No se ha podido encontrar el trabajo con PID %d", pid);
+      }
     }
+  }
 }
 
 /*
@@ -615,22 +658,29 @@ void reaper(int signum){
  * Controlador per a la senyal SIGINT (senyal enviada amb CTRL+C).
  * Com que els processos fills ignoren la senyal SIGINT el que farem nosaltres
  * és enviar la senyal SIGTERM a través del procés pare.
- * 
+ *
  * Només enviarem la senyal SIGTERM si el procés està a foreground i no sigui el
  * nostre propi minishell.
  */
 
-void ctrlc(int signum){
-    signal(SIGINT, ctrlc);
-    printf("\n");
-    fflush(stdout);
-    if (jobs_list[0].pid > 0){
-        if (strcmp(g_argv,jobs_list[0].command_line)){
-            if (kill(jobs_list[0].pid,SIGTERM) == -1){
-                perror("kill");
-            }
-        }
+void ctrlc(int signum) {
+  signal(SIGINT, ctrlc);
+  fflush(stdout);
+  if (jobs_list[0].pid > 0) {
+    if (strcmp(g_argv, jobs_list[0].command_line)) {
+      printf("\n");
+      if (kill(jobs_list[0].pid, SIGTERM) == -1) {
+        perror("kill");
+      }
     }
+  } else {
+#ifdef USE_READLINE
+    printf("\n%s", prompt());
+#else
+    printf("\n");
+#endif
+  }
+  fflush(stdout);
 }
 
 /*
@@ -639,24 +689,32 @@ void ctrlc(int signum){
  * Controlador per a la senyal SIGTSTP (senyal enviada amb CTRL+Z).
  * Com que els processos fills ignoren la senyal SIGTSTP el que farem nosaltres
  * és enviar la senyal SIGSTOP a través del procés pare.
- * 
+ *
  * Només enviarem la senyal SIGSTOP si el procés està a foreground i no sigui el
  * nostre propi minishell.
  */
 
-void ctrlz(int signum){
-    signal(SIGTSTP,ctrlz);
-    fflush(stdout);
-    printf("\n");
-    if (jobs_list[0].pid > 0){
-        if (strcmp(g_argv,jobs_list[0].command_line)){
-            if (n_pids >= N_JOBS){
-                fprintf(stderr,"No se pueden añadir más procesos en segundo plano, el proceso seguirá en foreground\n");
-            } else if(kill(jobs_list[0].pid,SIGSTOP) == 0){
-                jobs_list_add(jobs_list[0].pid,'D',jobs_list[0].command_line);
-            } else {
-                perror("kill");
-            }
-        }
+void ctrlz(int signum) {
+  signal(SIGTSTP, ctrlz);
+  fflush(stdout);
+  if (jobs_list[0].pid > 0) {
+    if (strcmp(g_argv, jobs_list[0].command_line)) {
+      printf("\n");
+      if (n_pids >= N_JOBS) {
+        fprintf(stderr, "No se pueden añadir más procesos en segundo plano, el "
+                        "proceso seguirá en foreground\n");
+      } else if (kill(jobs_list[0].pid, SIGSTOP) == 0) {
+        jobs_list_add(jobs_list[0].pid, 'D', jobs_list[0].command_line);
+      } else {
+        perror("kill");
+      }
     }
+  } else {
+#ifdef USE_READLINE
+    printf("\n%s", prompt());
+#else
+    printf("\n");
+#endif
+  }
+  fflush(stdout);
 }
