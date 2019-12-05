@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
 
 char *prompt() {
   char *user = getenv("USER"), *home = getenv("HOME"),
-       pwd[COMMAND_LINE_SIZE - 27];
+       pwd[COMMAND_LINE_SIZE]; // 
   char *prompt = malloc(COMMAND_LINE_SIZE);
   int len_home = strlen(home);
   if (*getcwd(pwd, COMMAND_LINE_SIZE) == -1) {
@@ -60,15 +60,18 @@ char *prompt() {
     sprintf(prompt, "\r\033[1;31m%s\033[0m:\033[1;32m%s\033[0m$ ", user, pwd);
   }
   return prompt;
+
+  // Cap variable guardarà la cadena de caràcters prompt, per tant no hem de
+  // menester de la funció free(), ho farà automàticament.
 }
 
 /*
  * char *read_line
  * ---------------
- * Si utilitzam readline emplearem la funció readline() per llegir una línea de
- * teclat, dins readline() invocarem a la funció prompt() per mostrarla en
- * pantalla mentres esperam l'input de l'usuari. Afegirem la línea que s'ha
- * introduït a l'historial que ens proporciona la llibreria Readline.
+ * Si utilitzam la llibreria Readline emplearem la funció readline() per llegir
+ * una línea de teclat, dins readline() invocarem a la funció prompt() per
+ * mostrarla en pantalla mentres esperam l'input de l'usuari. Afegirem la línea
+ * que s'ha introduït a l'historial que ens proporciona la llibreria Readline.
  *
  * Si no utilitzam readline imprimim el prompt i llegim una línia de la consola
  * amb fgets().
@@ -123,6 +126,7 @@ char *read_line(char *line) {
  * ----------------
  * Cridarà a parse args per obtenir la línia que l'usuari ha introduit
  * fragmentada en tokens.
+ * 
  * Passam els tokens a la función boolena check_internal() perquè ens determini
  * si és un comando intern o extern i l'executarà de forma adecuada.
  */
@@ -205,8 +209,6 @@ int check_internal(char **args) {
   return 0;
 }
 
-// INTERNAL COMMANDS
-
 /*
  * int internal_cd
  * ---------------
@@ -220,6 +222,11 @@ int check_internal(char **args) {
  *
  * Tant " com ' indicaran el principi i el final d'un directori que contengui un
  * nombre ams espais.
+ * 
+ * Hem hagut d'utilitzar les funcions strtok_r() i strtok() per trossejar cada
+ * token que ens passen segons si conté / o \ respectivament. Cada token que
+ * obtenim el ficarem dins l'array de caràcters arg, que sirà l'argument final
+ * amb el que cridam a la funció chdir().
  *
  * Si cd no té arguments canviarem al directori HOME.
  *
@@ -335,7 +342,7 @@ int internal_source(char **args) {
  * Si afegim un o més arguments imprimirà els treballs que li hem indicat.
  */
 
-int internal_jobs(char **args) {
+int internal_jobs(char **args) {  
   if (args[1]) {
     for (int i = 1; args[i]; i++) {
       int pos = atoi(args[i]);
@@ -486,7 +493,8 @@ int external_command(char **args) {
  * int is_background
  * -----------------
  * Analitza a la línea de comandos si hi ha un & al final.
- *
+ * Si hi és, li donam el valor NULL a la posició on estava el caràcter &
+ * 
  * Torna 0 si és background i 1 si no ho és.
  */
 
@@ -545,7 +553,7 @@ int is_output_redirection(char **args) {
  * int jobs_list_add
  * -----------------
  * Afegim un nou element a l'array de jobs_list indicada per la variable global
- * n_pids.
+ * n_pids. Imprimim per pantalla la informació sobre el treball.
  *
  * Augmentam el valor de n_pids per 1.
  */
